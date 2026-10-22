@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f7f8f4">
+  <meta name="description" content="RichYet? is a simple personal portfolio overview.">
+  <title>RichYet? — Portfolio</title>
+  <link rel="icon" href="./favicon.svg?v=20261010-07" type="image/svg+xml">
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="RichYet?">
+  <link rel="stylesheet" href="./styles.css?v=20261010-07">
+  <script type="module" src="./app.mjs?v=20261010-07"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <div class="page-shell">
+    <header id="portfolio-header" class="site-header">
+      <div class="wordmark" aria-label="RichYet?"><img class="brand-icon" src="./favicon.svg?v=20261010-07" width="36" height="36" alt="">RichYet<span class="brand-question">?</span></div>
+      <div class="header-actions">
+        <a class="text-button quiet-action" id="open-about" href="./about.html" hidden>About</a>
+        <div id="account-controls" class="account-controls" hidden>
+          <button id="account-button" class="account-button" type="button" aria-label="Account" aria-expanded="false" aria-controls="account-menu"><span id="account-initial" aria-hidden="true"></span></button>
+          <div id="account-menu" class="account-menu" role="group" aria-label="Your account" hidden>
+            <div class="account-identity"><p id="account-name" class="account-name"></p><p id="account-email" class="account-email"></p></div>
+            <a id="account-status" class="account-sign-out" href="./status.html" hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16M7 16v-5m5 5V4m5 12V8"/></svg>Data status</a>
+        <button id="account-currency" class="account-currency" type="button" aria-haspopup="dialog" aria-controls="currency-dialog"><span>Portfolio currency</span><strong id="account-currency-value">EUR</strong></button>
+        <button id="account-number-format" class="account-currency" type="button" aria-haspopup="dialog" aria-controls="number-format-dialog"><span>Number format</span><strong id="account-number-format-value">1.234,56</strong></button>
+        <button id="sign-out" class="account-sign-out" type="button"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M14 8l4 4-4 4M8 12h13"/></svg>Sign out</button>
+          </div>
+        </div>
+      </div>
+    </header>
+    <header id="form-page-header" class="secondary-header" hidden>
+      <a class="text-button portfolio-return" id="form-portfolio-return" href="./"><span class="return-label"><span aria-hidden="true">←</span> <span id="form-return-label">Portfolio</span></span></a>
+    </header>
+    <main id="main" tabindex="-1">
+      <section id="auth-screen" class="auth-page" aria-labelledby="auth-title">
+        <h1 id="auth-title" tabindex="-1">Your investment portfolio</h1>
+        <p id="auth-description" class="field-hint">Checking your sign-in…</p>
+        <form id="auth-form" hidden>
+          <div id="auth-email-field" class="field"><label for="auth-email">Email address</label><input id="auth-email" name="username" type="email" aria-describedby="auth-description auth-error" autocomplete="username" required maxlength="254"></div>
+          <div class="field"><label for="auth-password" id="auth-password-label">Password</label><input id="auth-password" name="password" type="password" autocomplete="current-password" required maxlength="72" aria-describedby="auth-password-hint"><p id="auth-password-hint" class="field-hint" hidden>Use at least 12 characters. A password manager can create and remember one for you.</p></div>
+          <div id="auth-confirm-field" class="field" hidden><label for="auth-confirm">Confirm password</label><input id="auth-confirm" name="confirm-password" type="password" autocomplete="new-password" maxlength="72"></div>
+          <p id="auth-error" class="field-error" role="alert"></p>
+          <button id="auth-submit" class="primary-button" type="submit">Sign in</button>
+        </form>
+        <a id="auth-return" class="text-button" href="./" hidden>Return to sign in</a>
+        <button id="auth-retry" class="secondary-button" type="button" hidden>Try again</button>
+        <div id="auth-help" class="auth-help" hidden><p>Created by <a href="mailto:marc.smeehuijzen@easytech.nl">marc.smeehuijzen@easytech.nl</a>.</p><p>Open-source release planned on <a href="https://github.com/" target="_blank" rel="noopener noreferrer">GitHub</a>.</p></div>
+      </section>
+      <aside id="connection-notice" class="connection-notice" role="status" hidden><p id="connection-message"></p><button id="reload-portfolio" class="text-button" type="button" aria-describedby="connection-message" hidden>Reload saved portfolio</button></aside>
+      <div id="portfolio-screen" hidden>
+      <section class="summary" aria-label="Portfolio summary">
+        <div class="summary-heading"><div class="page-heading"><h1>Portfolio</h1></div>
+        <div class="summary-value" role="group" aria-label="Portfolio value"><p id="portfolio-value" class="value-number"></p><p id="value-caption" class="muted" hidden></p></div></div>
+      <fieldset id="period-switch" class="period-switch">
+        <legend class="sr-only">Portfolio comparison</legend>
+        <label><input id="mode-latest" class="sr-only" type="radio" name="period" value="latest" checked><span>Latest change</span></label>
+        <label><input id="mode-purchase" class="sr-only" type="radio" name="period" value="purchase"><span>Since purchase</span></label>
+      </fieldset>
+        <div id="active-filter" class="active-filter"><label id="active-filter-choice" for="active-only"><input id="active-only" type="checkbox" aria-controls="summary-change holdings-list"><span>Open markets only</span></label><p id="market-filter-status" class="market-filter-status" role="status" hidden></p></div>
+        <div class="summary-main"><div id="summary-change" role="group" aria-label="Latest portfolio change" aria-live="polite" aria-atomic="true"></div></div>
+        <p class="summary-caption" id="summary-status" role="status" hidden></p>
+      </section>
+      <section class="holdings-section" aria-label="Investments">
+        <div class="section-heading"><div class="list-actions"><button id="add-investment" class="primary-button" type="button" hidden><span aria-hidden="true">+</span><span>Add investment</span></button><button id="manage-list" class="text-button quiet-action" type="button" aria-pressed="false">Edit</button></div></div>
+        <div id="holdings-list" class="holdings-list"></div>
+        <div id="empty-state" class="empty-state" hidden><span class="empty-symbol" aria-hidden="true">+</span><button id="empty-add" class="primary-button" type="button">Add an investment</button></div>
+        <div id="holdings-footer" class="holdings-footer"><button id="price-update" class="price-update" type="button" aria-haspopup="dialog" aria-controls="price-update-dialog" hidden></button><button id="portfolio-breakdown" class="text-button quiet-action" type="button" aria-haspopup="dialog" aria-controls="breakdown-dialog">Portfolio breakdown</button></div>
+      </section>
+      <aside id="data-mode-notice" class="demo-note"><p id="data-mode-note"><strong>Demo</strong> · Fictional investments and prices.</p><button class="text-button" id="reset-demo" type="button">Reset demo</button></aside>
+      </div>
+      <section id="investment-screen" class="investment-page" aria-labelledby="investment-screen-title" hidden>
+        <h1 id="investment-screen-title" tabindex="-1">Add an investment</h1>
+    <form id="investment-form" novalidate>
+      <div id="search-step">
+        <label for="instrument-search" class="sr-only">Find an investment</label>
+        <div class="search-wrap"><span aria-hidden="true">⌕</span><input id="instrument-search" type="search" placeholder="Search name, ticker or ISIN" maxlength="160" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="search-results" aria-describedby="search-hint search-status" aria-expanded="false"></div>
+        <p class="field-hint" id="search-hint">Search supported investments by name, ticker, ISIN or exchange.</p>
+        <div class="catalogue-feedback"><p class="field-hint" id="catalogue-status" role="status"></p><button class="text-button" id="catalogue-refresh" type="button" hidden>Refresh list</button></div>
+        <button id="retry-preparation" class="text-button" type="button" hidden>Check again</button>
+        <div class="catalogue-feedback"><p class="field-hint" id="search-status" role="status"></p><button id="search-retry" class="text-button" type="button" hidden>Try again</button></div>
+        <div id="search-results" class="search-results" role="listbox" aria-label="Matching investments"></div>
+        <button id="search-more" class="text-button search-more" type="button" hidden>Load more</button>
+      </div>
+      <div id="holding-fields" hidden><div id="selected-instrument" class="selected-instrument"></div><button id="change-selection" class="text-button" type="button">Choose a different investment</button>
+        <p id="selected-readiness" class="field-hint selection-readiness" hidden></p>
+        <p id="number-input-hint" class="field-hint">Use Dutch numbers, for example 1.234,56.</p>
+        <div class="form-grid"><div class="field"><label for="quantity">Units owned</label><input id="quantity" name="quantity" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 12,5" aria-describedby="number-input-hint quantity-error"><p id="quantity-error" class="field-error"></p></div><div class="field"><label for="average-cost" id="average-cost-label">Average purchase price</label><input id="average-cost" name="averageCost" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 100,00" aria-describedby="number-input-hint average-cost-error"><p id="average-cost-error" class="field-error"></p></div></div>
+        <div id="eur-cost-field" class="field" hidden><label for="eur-cost">Original cost in EUR <span class="optional">optional</span></label><input id="eur-cost" name="eurCost" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 1.250,00" aria-describedby="number-input-hint eur-cost-hint eur-cost-error"><p class="field-hint" id="eur-cost-hint">The total euros you paid for the units you still own. Add it to include currency changes. Leave it blank to estimate your euro gain from the average purchase price, excluding currency changes.</p><p id="eur-cost-error" class="field-error"></p></div>
+        <p id="form-error" class="field-error" role="alert"></p>
+        <button id="retry-selection" class="text-button" type="button" aria-describedby="form-error" hidden>Check again</button>
+        <div class="form-actions"><button class="secondary-button cancel-form" type="button">Cancel</button><button id="save-investment" class="primary-button" type="submit">Add investment</button></div>
+      </div>
+    </form>
+      </section>
+    </main>
+  </div>
+  <dialog id="currency-dialog" class="info-dialog" aria-labelledby="currency-title">
+    <div class="dialog-heading"><h2 id="currency-title">Portfolio currency</h2><button id="close-currency" class="icon-button" type="button" aria-label="Close currency settings">×</button></div>
+    <form id="currency-form">
+      <label for="reporting-currency">Show values and comparisons in</label>
+      <select id="reporting-currency"><option value="EUR">Euro (EUR)</option><option value="USD">US dollar (USD)</option><option value="GBP">British pound (GBP)</option></select>
+      <p class="field-hint">Quoted prices keep their original currency. Your saved purchase costs stay unchanged. USD and GBP conversions use daily reference rates.</p>
+      <p id="currency-error" class="field-error" role="alert"></p>
+      <div class="dialog-actions"><button id="cancel-currency" class="secondary-button" type="button">Cancel</button><button id="save-currency" class="primary-button" type="submit">Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="number-format-dialog" class="info-dialog" aria-labelledby="number-format-title">
+    <div class="dialog-heading"><h2 id="number-format-title">Number format</h2><button id="close-number-format" class="icon-button" type="button" aria-label="Close number format settings">×</button></div>
+    <form id="number-format-form">
+      <label for="number-format">Show and enter numbers as</label>
+      <select id="number-format"><option value="nl-NL">Dutch — 1.234,56</option><option value="en-GB">English — 1,234.56</option></select>
+      <p class="field-hint">This changes how numbers look and how you enter them. Your holdings, values and portfolio currency stay the same.</p>
+      <p id="number-format-error" class="field-error" role="alert"></p>
+      <div class="dialog-actions"><button id="cancel-number-format" class="secondary-button" type="button">Cancel</button><button id="save-number-format" class="primary-button" type="submit">Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="price-update-dialog" class="info-dialog" aria-labelledby="price-update-title">
+    <div class="dialog-heading"><h2 id="price-update-title">Last update</h2><button id="close-price-update" class="icon-button" type="button" aria-label="Close price update details">×</button></div>
+    <ul id="price-update-list" class="price-update-list"></ul>
+    <p id="price-update-empty" hidden>No price updates are available for this view yet.</p>
+    <section id="earlier-data-section" class="price-update-section" aria-labelledby="earlier-data-title" hidden>
+      <h3 id="earlier-data-title">Using earlier data</h3>
+      <ul id="earlier-data-list" class="price-update-list"></ul>
+    </section>
+    <section id="awaiting-data-section" class="price-update-section" aria-labelledby="awaiting-data-title" hidden>
+      <h3 id="awaiting-data-title">Awaiting first update</h3>
+      <p id="awaiting-data-description">These investments’ markets are open. They will appear in the filtered list when their latest change is ready.</p>
+      <ul id="awaiting-data-list" class="price-update-list"></ul>
+    </section>
+  </dialog>
+  <dialog id="breakdown-dialog" class="info-dialog breakdown-dialog" aria-labelledby="breakdown-title">
+    <div class="dialog-heading"><h2 id="breakdown-title">Portfolio breakdown</h2><button id="close-breakdown" class="icon-button" type="button" aria-label="Close portfolio breakdown">×</button></div>
+    <p id="breakdown-message" class="breakdown-message" hidden></p>
+    <div id="breakdown-chart" class="breakdown-chart"></div>
+    <p id="breakdown-selection" class="breakdown-selection" aria-live="polite"></p>
+    <ul id="breakdown-list" class="breakdown-list" aria-label="Investments by portfolio share"></ul>
+  </dialog>
+  <dialog id="estimate-dialog" class="info-dialog" aria-labelledby="estimate-title" aria-describedby="estimate-description estimate-guidance">
+    <div class="dialog-heading"><h2 id="estimate-title">Why estimated?</h2><button class="icon-button" id="close-estimate" type="button" aria-label="Close estimate explanation">×</button></div>
+    <p id="estimate-description"></p><ul id="estimate-list" class="coverage-list" hidden></ul><p id="estimate-guidance" class="field-hint"></p>
+  </dialog>
+  <dialog id="coverage-dialog" class="info-dialog" aria-labelledby="coverage-title" aria-describedby="coverage-description">
+    <div class="dialog-heading"><h2 id="coverage-title">Data issue</h2><button class="icon-button" id="close-coverage" type="button" aria-label="Close comparison details">×</button></div>
+    <p id="coverage-description"></p><ul id="coverage-list" class="coverage-list"></ul>
+  </dialog>
+  <dialog id="reorder-dialog" class="info-dialog" aria-labelledby="reorder-title">
+    <div class="dialog-heading"><h2 id="reorder-title">Move investment</h2></div>
+    <label for="reorder-position">Position in your list</label><select id="reorder-position"></select>
+    <div class="dialog-actions"><button id="reorder-cancel" class="secondary-button" type="button">Cancel</button><button id="reorder-save" class="primary-button" type="button">Move</button></div>
+  </dialog>
+
+  <dialog id="reset-dialog" class="info-dialog" aria-labelledby="reset-title"><div class="dialog-heading"><h2 id="reset-title">Start fresh?</h2><button class="icon-button" id="close-reset" type="button" aria-label="Cancel reset">×</button></div><p>This restores the fictional example portfolio and removes your changes to this demo.</p><div class="dialog-actions"><button id="cancel-reset" class="secondary-button" type="button">Keep my changes</button><button id="confirm-reset" class="primary-button" type="button">Reset demo</button></div></dialog>
+  <div id="toast" class="toast" hidden><span id="toast-message" role="status" aria-live="polite"></span><button id="undo-remove" type="button" hidden>Undo</button><button id="close-toast" class="icon-button" type="button" aria-label="Dismiss message">×</button></div>
+  <p id="storage-warning" class="storage-warning" role="status" hidden>This browser could not save your changes. They will last until you close or reload this page.</p>
+  <noscript><p class="noscript-message">Please enable JavaScript to use RichYet.</p></noscript>
+</body>
+</html>

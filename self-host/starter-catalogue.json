@@ -1,0 +1,311 @@
+{
+  "schemaVersion": 1,
+  "id": "personal",
+  "audience": "owner",
+  "instruments": [
+    {
+      "id": "starter_aapl_xnas",
+      "name": "Apple",
+      "symbol": "AAPL",
+      "exchange": "Nasdaq",
+      "mic": "XNAS",
+      "currency": "USD",
+      "type": "Stock",
+      "timeZone": "America/New_York",
+      "coverage": {
+        "price": true,
+        "comparison": true
+      },
+      "provider": "alpaca",
+      "providerConfig": {
+        "symbol": "AAPL",
+        "identityConfirmed": true
+      }
+    },
+    {
+      "id": "starter_msft_xnas",
+      "name": "Microsoft",
+      "symbol": "MSFT",
+      "exchange": "Nasdaq",
+      "mic": "XNAS",
+      "currency": "USD",
+      "type": "Stock",
+      "timeZone": "America/New_York",
+      "coverage": {
+        "price": true,
+        "comparison": true
+      },
+      "provider": "alpaca",
+      "providerConfig": {
+        "symbol": "MSFT",
+        "identityConfirmed": true
+      }
+    },
+    {
+      "id": "starter_amzn_xnas",
+      "name": "Amazon",
+      "symbol": "AMZN",
+      "exchange": "Nasdaq",
+      "mic": "XNAS",
+      "currency": "USD",
+      "type": "Stock",
+      "timeZone": "America/New_York",
+      "coverage": {
+        "price": true,
+        "comparison": true
+      },
+      "provider": "alpaca",
+      "providerConfig": {
+        "symbol": "AMZN",
+        "identityConfirmed": true
+      }
+    },
+    {
+      "id": "starter_googl_xnas",
+      "name": "Alphabet Class A",
+      "symbol": "GOOGL",
+      "exchange": "Nasdaq",
+      "mic": "XNAS",
+      "currency": "USD",
+      "type": "Stock",
+      "timeZone": "America/New_York",
+      "coverage": {
+        "price": true,
+        "comparison": true
+      },
+      "provider": "alpaca",
+      "providerConfig": {
+        "symbol": "GOOGL",
+        "identityConfirmed": true
+      }
+    },
+    {
+      "id": "starter_meta_xnas",
+      "name": "Meta Platforms Class A",
+      "symbol": "META",
+      "exchange": "Nasdaq",
+      "mic": "XNAS",
+      "currency": "USD",
+      "type": "Stock",
+      "timeZone": "America/New_York",
+      "coverage": {
+        "price": true,
+        "comparison": true
+      },
+      "provider": "alpaca",
+      "providerConfig": {
+        "symbol": "META",
+        "identityConfirmed": true
+      }
+    },
+    {
+      "id": "starter_amd_xnas",
+      "name": "Advanced Micro Devices",
+      "symbol": "AMD",
+      "exchange": "Nasdaq",
+      "mic": "XNAS",
+      "currency": "USD",
+      "type": "Stock",
+      "timeZone": "America/New_York",
+      "coverage": {
+        "price": true,
+        "comparison": true
+      },
+      "provider": "alpaca",
+      "providerConfig": {
+        "symbol": "AMD",
+        "identityConfirmed": true
+      }
+    },
+    {
+      "id": "starter_qqq_xnas",
+      "name": "Invesco QQQ Trust Series 1",
+      "symbol": "QQQ",
+      "exchange": "Nasdaq",
+      "mic": "XNAS",
+      "currency": "USD",
+      "type": "ETF",
+      "timeZone": "America/New_York",
+      "coverage": {
+        "price": true,
+        "comparison": true
+      },
+      "provider": "alpaca",
+      "providerConfig": {
+        "symbol": "QQQ",
+        "identityConfirmed": true
+      }
+    },
+    {
+      "id": "starter_spy_arcx",
+      "name": "State Street SPDR S&P 500 ETF Trust",
+      "symbol": "SPY",
+      "exchange": "NYSE Arca",
+      "mic": "ARCX",
+      "currency": "USD",
+      "type": "ETF",
+      "timeZone": "America/New_York",
+      "coverage": {
+        "price": true,
+        "comparison": true
+      },
+      "provider": "alpaca",
+      "providerConfig": {
+        "symbol": "SPY",
+        "identityConfirmed": true
+      }
+    },
+    {
+      "id": "starter_asml_xams",
+      "name": "ASML Holding",
+      "symbol": "ASML",
+      "exchange": "Euronext Amsterdam",
+      "mic": "XAMS",
+      "currency": "EUR",
+      "type": "Stock",
+      "isin": "NL0010273215",
+      "timeZone": "Europe/Amsterdam",
+      "coverage": {
+        "price": true,
+        "comparison": true
+      },
+      "provider": "euronext",
+      "providerConfig": {
+        "identityConfirmed": true,
+        "venue": "XAMS",
+        "publicationVenue": "XAMS",
+        "tradingSchedule": "ams_j0_continuous_2026",
+        "historyProvider": "newton",
+        "historySymbol": "ASML.AS",
+        "historyIdentityConfirmed": true,
+        "actionsProvider": "eodhd",
+        "actionsSymbol": "ASML.AS",
+        "actionsIdentityConfirmed": true
+      }
+    },
+    {
+      "id": "starter_inga_xams",
+      "name": "ING Groep",
+      "symbol": "INGA",
+      "exchange": "Euronext Amsterdam",
+      "mic": "XAMS",
+      "currency": "EUR",
+      "type": "Stock",
+      "isin": "NL0011821202",
+      "timeZone": "Europe/Amsterdam",
+      "coverage": {
+        "price": true,
+        "comparison": true
+      },
+      "provider": "euronext",
+      "providerConfig": {
+        "identityConfirmed": true,
+        "venue": "XAMS",
+        "publicationVenue": "XAMS",
+        "tradingSchedule": "ams_j0_continuous_2026",
+        "historyProvider": "newton",
+        "historySymbol": "INGA.AS",
+        "historyIdentityConfirmed": true,
+        "actionsProvider": "eodhd",
+        "actionsSymbol": "INGA.AS",
+        "actionsIdentityConfirmed": true
+      }
+    },
+    {
+      "id": "starter_iwda_xams",
+      "name": "iShares Core MSCI World UCITS ETF USD (Acc)",
+      "symbol": "IWDA",
+      "exchange": "Euronext Amsterdam",
+      "mic": "XAMS",
+      "currency": "EUR",
+      "type": "ETF",
+      "isin": "IE00B4L5Y983",
+      "timeZone": "Europe/Amsterdam",
+      "coverage": {
+        "price": true,
+        "comparison": true
+      },
+      "provider": "euronext",
+      "providerConfig": {
+        "identityConfirmed": true,
+        "venue": "XAMS",
+        "publicationVenue": "XAMS",
+        "tradingSchedule": "ams_eur_etf_continuous_2026",
+        "historyProvider": "newton",
+        "historySymbol": "IWDA.AS",
+        "historyIdentityConfirmed": true,
+        "actionsProvider": "eodhd",
+        "actionsSymbol": "IWDA.AS",
+        "actionsIdentityConfirmed": true
+      }
+    }
+  ],
+  "policies": {
+    "starter_aapl_xnas": {
+      "priceAccess": "owner",
+      "fxAccess": "owner",
+      "priceHistory": true,
+      "fxHistory": true
+    },
+    "starter_msft_xnas": {
+      "priceAccess": "owner",
+      "fxAccess": "owner",
+      "priceHistory": true,
+      "fxHistory": true
+    },
+    "starter_amzn_xnas": {
+      "priceAccess": "owner",
+      "fxAccess": "owner",
+      "priceHistory": true,
+      "fxHistory": true
+    },
+    "starter_googl_xnas": {
+      "priceAccess": "owner",
+      "fxAccess": "owner",
+      "priceHistory": true,
+      "fxHistory": true
+    },
+    "starter_meta_xnas": {
+      "priceAccess": "owner",
+      "fxAccess": "owner",
+      "priceHistory": true,
+      "fxHistory": true
+    },
+    "starter_amd_xnas": {
+      "priceAccess": "owner",
+      "fxAccess": "owner",
+      "priceHistory": true,
+      "fxHistory": true
+    },
+    "starter_qqq_xnas": {
+      "priceAccess": "owner",
+      "fxAccess": "owner",
+      "priceHistory": true,
+      "fxHistory": true
+    },
+    "starter_spy_arcx": {
+      "priceAccess": "owner",
+      "fxAccess": "owner",
+      "priceHistory": true,
+      "fxHistory": true
+    },
+    "starter_asml_xams": {
+      "priceAccess": "owner",
+      "fxAccess": "owner",
+      "priceHistory": true,
+      "fxHistory": true
+    },
+    "starter_inga_xams": {
+      "priceAccess": "owner",
+      "fxAccess": "owner",
+      "priceHistory": true,
+      "fxHistory": true
+    },
+    "starter_iwda_xams": {
+      "priceAccess": "owner",
+      "fxAccess": "owner",
+      "priceHistory": true,
+      "fxHistory": true
+    }
+  }
+}

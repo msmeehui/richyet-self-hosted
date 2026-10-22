@@ -1,0 +1,15 @@
+{
+  "origin": "https://portfolio.example.invalid",
+  "database": {
+    "dsn": "mysql:host=localhost;dbname=REPLACE_DATABASE;charset=utf8mb4",
+    "username": "REPLACE_USER",
+    "password": "REPLACE_PASSWORD"
+  },
+  "app_key": "REPLACE_WITH_A_NEW_RANDOM_KEY",
+  "allow_insecure_localhost": false,
+  "account_display_names": {},
+  "market_owner_email": "owner@example.invalid",
+  "market_credentials_path": "/home/you/richyet-private/provider-credentials.json",
+  "market_eodhd_credentials_path": "/home/you/richyet-private/provider-credentials.json",
+  "status_enabled": true
+}
