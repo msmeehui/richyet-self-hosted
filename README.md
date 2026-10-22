@@ -2,7 +2,7 @@
 
 A simple personal investment overview for your phone or computer. See your portfolio value, its latest movement and gain or loss since purchase, then expand a holding for details.
 
-This is the first **personal self-hosting release** of RichYet. The [source code](https://github.com/msmeehui/richyet-self-hosted) is MIT-licensed; provider data and access are separate.
+This is the main development repository for the **personal self-hosted RichYet app**. The [source code](https://github.com/msmeehui/richyet-self-hosted) is MIT-licensed; provider data and access are separate.
 
 ## Screenshots
 
@@ -64,11 +64,12 @@ Open `http://127.0.0.1:4017/?demo=1`. This is a fictional, browser-only preview.
 
 ```sh
 npm run check
-php tests/self-host-bootstrap.test.php
-php tests/self-host-catalogue.test.php
+npm test
 npm run calendars:review
 ```
 
-The setup and catalogue tests use disposable SQLite databases and fictional data; PHP needs PDO SQLite for these optional tests. Production uses MySQL/MariaDB. See INSTALL.md for backups, recovery and checking your installed web runtime. Calendar coverage is explicit and needs occasional review; European 2027 coverage is not complete yet.
+The regression tests cover calculations, retained prices, reporting, calendars and setup using fictional data and disposable SQLite databases. They need PHP with PDO SQLite. Production uses MySQL/MariaDB. See INSTALL.md for backups, recovery and checking your installed web runtime. Calendar coverage is explicit and needs occasional review; European 2027 coverage is not complete yet.
 
 Created by Marc Smeehuijzen. [MIT licence](LICENSE). This package contains software and small reference examples, not anyone’s portfolio, credentials, historical prices or original private development history.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for offline tests, the fictional preview and the reviewed release workflow. Develop changes here once; each installation keeps its own configuration and data. Download a [tagged release](https://github.com/msmeehui/richyet-self-hosted/releases) for installation.

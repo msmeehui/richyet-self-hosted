@@ -16,3 +16,11 @@
 .env.*
 !.env.example
 .DS_Store
+
+# Source fixture is not a database; never ignore this test dependency.
+!/tests/backend-schema.sqlite.sql
+# Local development output
+/coverage/
+/build/
+__pycache__/
+*.pyc

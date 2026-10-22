@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {normalizeMarketSnapshot} from '../public/lib/market.mjs';
+import {calculateHolding,calculateLatestContribution} from '../public/lib/portfolio.mjs';
+import {comparisonWarnings} from '../public/lib/data-warnings.mjs';
+const php=process.env.PHP_BINARY;
+test('retained backend bundle still produces both comparisons and the complete portfolio reference',{skip:!php},()=>{
+ const out=JSON.parse(execFileSync(php,[fileURLToPath(new URL('./last-valid-market.test.php',import.meta.url)),'--json'],{encoding:'utf8'}));
+ const {instrument}=out,market=normalizeMarketSnapshot(out.snapshot,[instrument]);
+ const holding={id:'fictional-position',instrumentId:instrument.id,quantity:'5',averageCost:'90',eurCost:null};
+ const quote=market.quotes[instrument.id],entry={holding,instrument,quote};
+ const result=calculateHolding(holding,instrument,quote),total=calculateLatestContribution([entry],[entry]);
+ assert.equal(result.value,416);assert.ok(Math.abs(result.baseline-1250/3)<1e-10);
+ assert.ok(Math.abs(result.change+2/3)<1e-10);assert.equal(result.purchaseGain,56);
+ assert.equal(total.completeReference,true);assert.ok(Math.abs(total.changePercent+0.16)<1e-10);
+ const warnings=comparisonWarnings([entry],[entry],total,{issues:market.issues,now:Date.parse('2026-10-18T23:00:00Z')});
+ assert.equal(warnings.length,1);assert.equal(warnings[0].kind,'earlier');assert.doesNotMatch(warnings[0].reason,/left out|percentage is unavailable/);
+ const edited={...holding,quantity:'10'};assert.equal(calculateHolding(edited,instrument,quote).value,832,'Retained source data recalculates current saved units');
+ assert.equal(holding.quantity,'5');
+});
