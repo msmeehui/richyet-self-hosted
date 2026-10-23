@@ -345,7 +345,7 @@ test('live Add keeps search, preparation and personal entry in separate cancella
         assert.equal(JSON.stringify(savedHoldings),before);assert.equal(calls.slice(callsBefore).some(c=>c.options.method==='PUT'),false);
       } finally {clock=priorClock;marketFixtureReceipts={};quoteOverrides={};savedHoldings=[];catalogueItems=[old];get('reload-portfolio').emit('click');await settle();}
     });
-    await t.test('Last update remains reachable when all open holdings await data and no receipt exists',async()=>{
+    await t.test('empty open-market view explains first-price and comparison waits, then clears on recovery',async()=>{
       const priorClock=clock;
       const eu={...listing('first-eu','Fictional <Awaiting> One'),type:'Stock',mic:'XAMS',timeZone:'Europe/Amsterdam',closeSchedule:'ams_j0_continuous_2026'};
       const eu2={...eu,id:'first-eu-two',name:'Fictional Awaiting Two'};
@@ -355,6 +355,9 @@ test('live Add keeps search, preparation and personal entry in separate cancella
         quoteOverrides=Object.fromEntries(catalogueItems.map(i=>[i.id,{date:'2026-10-12',previousDate:'2026-10-09',observedAt:'2026-10-12T13:45:00Z',priceKind:'trade',status:'delayed'}]));
         get('reload-portfolio').emit('click');await settle();selectView('active');
         assert.equal(get('holdings-list').marketRows.every(r=>r.hidden),true);
+        assert.match(get('summary-change').innerHTML,/Waiting for today’s first updates/);
+        assert.doesNotMatch(get('summary-change').innerHTML,/No active holdings|summary-numbers/);
+        assert.equal(get('active-filter-choice').hidden,false);
         assert.equal(get('holdings-footer').hidden,false);assert.equal(get('price-update').hidden,false);
         get('price-update').emit('click',{detail:1});
         assert.equal(get('price-update-title').textContent,'Last update');assert.equal(get('price-update-list').hidden,true);
@@ -363,6 +366,19 @@ test('live Add keeps search, preparation and personal entry in separate cancella
         assert.match(get('awaiting-data-list').innerHTML,/Fictional Awaiting Two/);
         get('close-price-update').emit('click');assert.equal(document.activeElement.id,'price-update');
         assert.doesNotMatch(get('summary-change').innerHTML,/show-coverage/,'A normal first-price wait alone is not a data failure');
+        quoteOverrides[eu.id]={date:'2026-10-13',previousDate:null,previousClose:null,observedAt:'2026-10-13T07:45:00Z',priceKind:'trade',status:'delayed'};
+        get('reload-portfolio').emit('click');await settle();
+        assert.match(get('summary-change').innerHTML,/Waiting for comparison data/,'a received price must not be described as a missing first update');
+        assert.equal(get('holdings-list').marketRows.every(r=>r.hidden),true);
+        get('price-update').emit('click',{detail:1});
+        assert.equal(get('awaiting-data-title').textContent,'Awaiting data');
+        assert.match(get('awaiting-data-list').innerHTML,/Its previous closing price is not available yet/);
+        get('close-price-update').emit('click');
+        quoteOverrides[eu.id]={...quoteOverrides[eu.id],previousDate:'2026-10-12',previousClose:'100'};
+        get('reload-portfolio').emit('click');await settle();
+        assert.doesNotMatch(get('summary-change').innerHTML,/Waiting for|No active holdings/);
+        assert.match(get('summary-change').innerHTML,/summary-numbers/);
+        assert.deepEqual(get('holdings-list').marketRows.filter(r=>!r.hidden).map(r=>r.dataset.holdingId),[eu.id+'-h']);
         savedHoldings=[];get('reload-portfolio').emit('click');await settle();
         assert.equal(get('holdings-footer').hidden,true);assert.equal(get('price-update').hidden,true);
       } finally {clock=priorClock;marketFixtureReceipts={};quoteOverrides={};savedHoldings=[];catalogueItems=[old];get('reload-portfolio').emit('click');await settle();}
@@ -519,7 +535,7 @@ test('live Add keeps search, preparation and personal entry in separate cancella
       const nodes=get('holdings-list').marketRows,order=nodes.map(row=>row.dataset.holdingId);
       const euro=nodes.find(row=>row.dataset.holdingId==='mode-1'),dollar=nodes.find(row=>row.dataset.holdingId==='mode-0');
       assert.match(euro.querySelector('.row-change').innerHTML,/change-percent">—/);
-      assert.match(get('summary-change').innerHTML,/No active holdings/);
+      assert.match(get('summary-change').innerHTML,/Waiting for today’s first updates/);
       assert.equal(get('summary-status').hidden,true,'ordinary waiting has no repetitive sentence');
       switchMode('all');
       assert.equal(get('portfolio-screen').dataset.comparisonMode,'all');

@@ -624,8 +624,11 @@ function renderSummary(total,entries,now=Date.now()) {
   const dataIssues = comparisonCoverage.filter(item=>item.kind !== 'earlier');
   renderPriceUpdate(selection,effectiveMode,now);
   if ($('estimate-dialog').open && estimateOpener && !renderEstimateDetails(estimateOpener)) $('estimate-dialog').close();
+  const emptyActiveState = awaitingData.length
+    ? awaitingData.every(item=>item.waitingForPrice) ? 'Waiting for today’s first updates' : 'Waiting for comparison data'
+    : 'No active holdings';
   const marketState = openMarkets && openMarkets.openCount + openMarkets.activeFundCount === 0 && openMarkets.unknownCount > 0 ? 'Market hours unavailable'
-    : openMarkets && selection.activeEntries.length === 0 && !activeIssue ? 'No active holdings' : '';
+    : openMarkets && selection.activeEntries.length === 0 && !activeIssue ? emptyActiveState : '';
 
   const amount = sincePurchase ? total.purchaseGain : latest.change;
   const percentage = sincePurchase ? total.purchaseGainPercent : latest.changePercent;
