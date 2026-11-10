@@ -71,6 +71,21 @@ All requests used shared accounting within the ordinary free limits, without pai
 
 ## Limits and timing
 
+The Xetra reader accepts both the legacy MMT layout and the RTS 1 monetary
+layout observed in November 2026. For the latter, only ordinary order-book
+trades with no flags or the informational ALGO flag are eligible, during the
+reviewed regular session from 09:00 to the calendar's closing boundary. Retail
+and other excluded reports do not supply prices. Cancellations, amendments,
+listing contradictions and conflicting transaction records still block the
+affected session, including when the report itself would otherwise be excluded.
+
+The newer layout does not identify a closing-auction phase. RichYet keeps those
+observations as trades and requires a separately verified previous closing
+price for a comparison. Unsupported formats remain unavailable, with bounded
+private rejection evidence; they are not labelled as proof of a corporate
+action. A previously rejected session with no recorded reason remains blocked:
+installing this reader does not retroactively verify it or erase its warning.
+
 RichYet’s protective ceilings are Alpaca 100 requests/hour, public European sources 180/hour, TickerLayer 80/day, Newton 120/day and EODHD 18/day. Explicit preparation has lower sublimits. These are application limits, **not** statements about your provider’s remaining balance. Other apps using the same keys also consume allowances.
 
 The normal job runs every ten minutes; adapters generally target hourly checks, with source-specific opening/retry/history rules. Newer cached prices may appear when the app is reopened without another provider request. Data status shows saved checks and application usage. A complete calculation does not prove that its price is current.

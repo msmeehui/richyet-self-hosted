@@ -288,6 +288,11 @@ final class InstrumentPreparation
             $prior=$old['europe']['xetra']['sessions'][$id][$date]??null;
             $next=$replaceSessionEvidence||$prior===null?$session:$prior;
             if(($prior['invalid']??false)===true||($session['invalid']??false)===true)$next['invalid']=true;
+            if(($prior['formatUnavailable']??false)===true||($session['formatUnavailable']??false)===true)$next['formatUnavailable']=true;
+            if(isset($prior['rejections'])||isset($session['rejections']))$next['rejections']=[
+                'count'=>min(1000000,max($prior['rejections']['count']??0,$session['rejections']['count']??0)),
+                'first'=>$prior['rejections']['first']??$session['rejections']['first'],
+                'last'=>$session['rejections']['last']??$prior['rejections']['last']];
             if(($prior['capacityExceeded']??false)===true||($session['capacityExceeded']??false)===true){
                 $next['capacityExceeded']=true;$next['trades']=[];unset($next['transactionFingerprints'],$next['transactionCount']);
             }

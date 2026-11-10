@@ -430,10 +430,10 @@ final class EuropeanProviders
                 // the cursor or partially replace a previously coherent value.
                 $working = $state;
                 $maxPublication = null;
-                foreach (self::gzipRows($raw) as $row) {
+                foreach (self::gzipRows($raw, 335544320, 600000, true) as $line => $row) {
                     $published = self::instant($row['publicationDateAndTime'] ?? null);
                     if ($published !== null && $published <= $now && ($maxPublication === null || $published > $maxPublication)) $maxPublication = $published;
-                    foreach ($valid as $instrument) self::xetraRecord($working, $instrument, $row, $now);
+                    foreach ($valid as $instrument) self::xetraRecord($working, $instrument, $row, $now, $file, $line);
                 }
                 if (str_contains($file, '-daily-')) {
                     $dailyDate = substr($file, strlen('DETR-posttrade-daily-'), 10);
@@ -571,7 +571,7 @@ final class EuropeanProviders
     }
 
     /** Parse concatenated gzip members incrementally, including empty first members. */
-    public static function gzipRows(string $compressed, int $maxDecoded = 335544320, int $maxRows = 600000): \Generator
+    public static function gzipRows(string $compressed, int $maxDecoded = 335544320, int $maxRows = 600000, bool $lineNumbers = false): \Generator
     {
         if (!function_exists('inflate_init')) throw new \RuntimeException('Gzip support unavailable.');
         if ($compressed === '' || strlen($compressed) > 33554432) throw new \RuntimeException('Invalid compressed size.');
@@ -603,7 +603,8 @@ final class EuropeanProviders
                 if (trim($raw) === '') continue;
                 $row = self::json($raw);
                 if (!is_array($row)) throw new \RuntimeException('Invalid trade row.');
-                yield $row;
+                if ($lineNumbers) yield $rows => $row;
+                else yield $row;
             }
             if (strlen($line) > 65536) throw new \RuntimeException('Archive line too long.');
             $ended = inflate_get_status($context) === ZLIB_STREAM_END;
@@ -611,11 +612,12 @@ final class EuropeanProviders
         if (!$ended) throw new \RuntimeException('Truncated gzip archive.');
         if (trim($line) !== '') {
             if (++$rows > $maxRows) throw new \RuntimeException('Archive row limit exceeded.');
-            yield self::json($line);
+            if ($lineNumbers) yield $rows => self::json($line);
+            else yield self::json($line);
         }
     }
 
-    private static function xetraRecord(array &$state, array $instrument, array $row, int $now): void
+    private static function xetraRecord(array &$state, array $instrument, array $row, int $now, ?string $file = null, ?int $line = null): void
     {
         if (($row['instrumentIdentificationCode'] ?? null) !== $instrument['isin']) return;
         $config = $instrument['providerConfig'];
@@ -626,28 +628,83 @@ final class EuropeanProviders
             || strcmp(self::timeKey($row['publicationDateAndTime']), self::timeKey($row['tradingDateAndTime'])) < 0) throw new \RuntimeException('Invalid trade time.');
         $date = (new \DateTimeImmutable('@' . $time))->setTimezone(new \DateTimeZone('Europe/Berlin'))->format('Y-m-d');
         $id = $instrument['id'];
-        // An excluded normal trade must not create an empty newest session that
-        // would hide the preceding eligible close. Amendments/cancellations still
-        // reach session invalidation even when their other flags are ineligible.
-        if (($row['mmtModificationInd'] ?? null) === '-'
-            && (!in_array($row['mmtTradingMode'] ?? null, ['2', 'O', 'I', 'K'], true)
-                || ($row['tradingSystem'] ?? null) !== '1' || ($row['mmtBenchmarkRefprcInd'] ?? null) !== '-'
-                || ($row['mmtPubModeDefReason'] ?? null) !== '-')) return;
+        $notation = $row['priceNotation'] ?? null;
+        $schema = $notation === 'MONE' ? 'rts1' : (in_array($notation, ['1', 1], true) ? 'mmt' : 'unknown');
+        $flags = self::xetraFlags($row);
+        // Corrections and identity contradictions are processed even for an
+        // otherwise excluded retail, out-of-hours or non-price-forming report.
+        // Their linkage is not established: keep the whole dated session veto.
+        $correctionFlags = is_string($row['flags'] ?? null) ? array_map('trim', explode(',', $row['flags'])) : [];
+        $correction = in_array($row['mmtModificationInd'] ?? null, ['A', 'C'], true)
+            || array_intersect($correctionFlags, ['CANC', 'AMND']);
+        if ($correction) {
+            self::xetraReject($state, $id, $date, $row, $schema, 'correction', true, $file, $line); return;
+        }
+        if (($row['priceCurrency'] ?? null) !== $instrument['currency']
+            || ($row['venueOfPublication'] ?? null) !== $config['publicationVenue']) {
+            self::xetraReject($state, $id, $date, $row, $schema, 'listing_conflict', true, $file, $line); return;
+        }
+        if ($schema === 'rts1') {
+            // RTS 1 Annex I tables 3/4: MONE is monetary notation, ALGO is
+            // informational, absent flags are allowed, and CLOB does not tell
+            // us the trading phase. Do not invent an MMT mode or auction close.
+            $mixed = false;
+            foreach (array_keys($row) as $key) if (str_starts_with((string) $key, 'mmt')) $mixed = true;
+            if (!in_array($row['rts'] ?? null, ['1', 1], true) || $mixed || $flags === null) {
+                self::xetraReject($state, $id, $date, $row, $schema, 'unsupported_schema', false, $file, $line); return;
+            }
+            $excludedFlags = ['BENC','NPFT','TNCP','ACTX','PORT','CONT','SDIV','LRGS','RFPT','NLIQ','OILQ','PRIC'];
+            if (array_diff($flags, array_merge(['ALGO'], $excludedFlags))) {
+                self::xetraReject($state, $id, $date, $row, $schema, 'unsupported_flags', false, $file, $line); return;
+            }
+            if (array_intersect($flags, $excludedFlags)) return;
+            if (array_key_exists('retail', $row)) {
+                if ($row['retail'] === 'RETL') return;
+                self::xetraReject($state, $id, $date, $row, $schema, 'unsupported_retail', false, $file, $line); return;
+            }
+            if (!is_string($row['tradingSystem'] ?? null) || $row['tradingSystem'] === '') {
+                self::xetraReject($state, $id, $date, $row, $schema, 'unsupported_system', false, $file, $line); return;
+            }
+            if (in_array($row['tradingSystem'], ['RETL', 'QDTS', 'PATS', 'RFQT', 'HYBR', 'OTHR'], true)) return;
+            if ($row['tradingSystem'] !== 'CLOB') {
+                self::xetraReject($state, $id, $date, $row, $schema, 'unsupported_system', false, $file, $line); return;
+            }
+            $calendar = MarketCalendars::day($instrument['mic'], $date);
+            if ($calendar === null || !$calendar['hoursKnown']) {
+                self::xetraReject($state, $id, $date, $row, $schema, 'unverified_hours', false, $file, $line); return;
+            }
+            $local = (new \DateTimeImmutable('@' . $time))->setTimezone(new \DateTimeZone('Europe/Berlin'));
+            $minute = (int) $local->format('G') * 60 + (int) $local->format('i');
+            if (!$calendar['isSession'] || $minute < max(540, $calendar['openMinute']) || $minute >= $calendar['closeMinute']) return;
+            $mode = 'unknown';
+        } elseif ($schema === 'mmt') {
+            // Preserve the reviewed legacy path. Excluded ordinary reports do
+            // not create a new empty session hiding the preceding valid close.
+            if (($row['mmtModificationInd'] ?? null) === '-'
+                && (!in_array($row['mmtTradingMode'] ?? null, ['2', 'O', 'I', 'K'], true)
+                    || ($row['tradingSystem'] ?? null) !== '1' || ($row['mmtBenchmarkRefprcInd'] ?? null) !== '-'
+                    || ($row['mmtPubModeDefReason'] ?? null) !== '-')) return;
+            if (($row['mmtModificationInd'] ?? null) !== '-') {
+                self::xetraReject($state, $id, $date, $row, $schema, 'legacy_modification_unknown', true, $file, $line); return;
+            }
+            if (array_key_exists('flags', $row)) {
+                self::xetraReject($state, $id, $date, $row, $schema, 'unsupported_schema', false, $file, $line); return;
+            }
+            $mode = $row['mmtTradingMode'];
+        } else {
+            self::xetraReject($state, $id, $date, $row, $schema, 'unsupported_notation', false, $file, $line); return;
+        }
         $session =& $state['sessions'][$id][$date];
         if (!is_array($session)) $session = ['trades' => [], 'invalid' => false];
-        if (($row['priceCurrency'] ?? null) !== $instrument['currency']
-            || ($row['venueOfPublication'] ?? null) !== $config['publicationVenue']
-            || (string) ($row['priceNotation'] ?? '') !== '1') { $session['invalid'] = true; return; }
-        // A/C linkage is not documented by this public provider. Invalidate the
-        // affected session rather than dropping the message or guessing a target.
-        if (($row['mmtModificationInd'] ?? null) !== '-') { $session['invalid'] = true; return; }
         $price = self::price($row['price'] ?? null);
         $transaction = $row['transactionIdentificationCode'] ?? null;
         if ($price === null || !is_string($transaction) || !preg_match('/^[A-Za-z0-9_-]{1,128}$/D', $transaction)) throw new \RuntimeException('Invalid eligible trade.');
-        $trade = ['price' => $price, 'time' => $row['tradingDateAndTime'], 'published' => $row['publicationDateAndTime'], 'mode' => $row['mmtTradingMode']];
+        $trade = ['price' => $price, 'time' => $row['tradingDateAndTime'], 'published' => $row['publicationDateAndTime'], 'mode' => $mode];
         self::unpackTransactionEvidence($session);
         $fingerprint=hash('sha256',json_encode($trade,JSON_THROW_ON_ERROR));
-        if(isset($session['_transactionFingerprints'][$transaction])&&$session['_transactionFingerprints'][$transaction]!==$fingerprint){$session['invalid']=true;return;}
+        if(isset($session['_transactionFingerprints'][$transaction])&&$session['_transactionFingerprints'][$transaction]!==$fingerprint){
+            self::xetraReject($state, $id, $date, $row, $schema, 'conflicting_transaction', true, $file, $line); return;
+        }
         if(($session['capacityExceeded']??false)===true)return;
         // Capacity failure belongs to this listing, never to an entire exchange
         // archive. Continue scanning all rows so explicit corrections still veto.
@@ -659,6 +716,32 @@ final class EuropeanProviders
             if(!isset($session['trades'][$transaction])&&count($session['trades'])>=self::SESSION_WITNESSES)$session['capacityExceeded']=true;
             else $session['trades'][$transaction]=$trade;
         }
+    }
+
+    private static function xetraFlags(array $row): ?array
+    {
+        if (!array_key_exists('flags', $row) || $row['flags'] === '') return [];
+        if (!is_string($row['flags']) || strlen($row['flags']) > 256) return null;
+        $flags = array_map('trim', explode(',', $row['flags']));
+        foreach ($flags as $flag) if (!preg_match('/^[A-Z]{4}$/D', $flag)) return null;
+        return array_values(array_unique($flags));
+    }
+
+    /** Bounded private evidence. The hash identifies the parsed, normalized row,
+     * not the original JSON bytes. No price, quantity or raw body is retained.
+     * A format failure is unavailable evidence, never a claimed corporate action.
+     * Existing opaque invalid flags remain sticky across parsing and merging. */
+    private static function xetraReject(array &$state, string $id, string $date, array $row, string $schema,
+        string $reason, bool $invalid, ?string $file, ?int $line): void
+    {
+        $session =& $state['sessions'][$id][$date];
+        if (!is_array($session)) $session = ['trades' => [], 'invalid' => false];
+        if ($invalid) $session['invalid'] = true;
+        else $session['formatUnavailable'] = true;
+        $evidence = ['reason'=>$reason, 'schema'=>$schema, 'file'=>$file, 'line'=>$line,
+            'rowSha256'=>hash('sha256', json_encode($row, JSON_THROW_ON_ERROR)), 'observedAt'=>$row['tradingDateAndTime']];
+        $session['rejections'] = ['count'=>min(1000000, ($session['rejections']['count'] ?? 0) + 1),
+            'first'=>$session['rejections']['first'] ?? $evidence, 'last'=>$evidence];
     }
 
     /** Keep exact latest-time witnesses, and compressed full transaction hashes
@@ -761,6 +844,11 @@ final class EuropeanProviders
         if ($id !== null && XetraReference::oldBasisUnsafe($referenceState, $id, $date, $now)) return self::missing('Xetra delayed trades', 'corporate_action_unverified');
         $session = $sessions[$date];
         if (($session['invalid'] ?? true) === true) return self::missing('Xetra delayed trades', 'corporate_action_unverified');
+        if (($session['formatUnavailable'] ?? false) === true) {
+            $quote = self::missing('Xetra delayed trades', 'source_unavailable');
+            $quote['eligibilityIssue'] = 'unsupported_trade_format';
+            return $quote;
+        }
         if(($session['capacityExceeded']??false)===true)return self::missing('Xetra delayed trades','source_unavailable');
         $trades = array_values($session['trades'] ?? []);
         if (!$trades) return self::missing('Xetra delayed trades', 'price_missing');
