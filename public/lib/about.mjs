@@ -11,7 +11,7 @@ export const aboutContent = `
         <p>Choose EUR, USD or GBP under Portfolio currency in your account menu. Choose Dutch (1.234,56) or English (1,234.56) under Number format; this also sets how you enter amounts. Quoted prices keep their original currency. Open Portfolio breakdown below the list to see each investment’s share of the whole portfolio, or expand an investment for its individual share.</p>
         <h3>Latest change</h3>
         <p>Each investment is compared with its preceding closing price or fund valuation, including currency changes. Investments can use different dates, so this is not a single calendar-day return.</p>
-        <p><strong>Open markets only</strong> shows holdings whose markets are open, including those awaiting today’s update. Their last known values stay visible when available; only usable current-session changes contribute to the filtered amount and percentage. Both filter settings compare the change with the same previous value of the whole portfolio, so the percentages stay comparable.</p>
+        <p><strong>Open markets only</strong> shows holdings whose markets are open, including those awaiting today’s update. Waiting holdings show their status in the list. Expand one to see its last known value and price date, when available; that value still counts towards the portfolio total. Only usable current-session changes contribute to the filtered amount and percentage. Both filter settings compare the change with the same previous value of the whole portfolio, so the percentages stay comparable.</p>
         <p>With this filter checked, a new BND daily value is included during one weekday 09:00–17:30 Amsterdam window. These are RichYet’s reporting hours, not fund trading hours.</p>
         <p>RichYet keeps the last valid figures when an update is delayed. Last update names any investments using earlier data. “Data issue” means some figures cannot safely be shown.</p>
         <h3>Since purchase</h3>
@@ -64,7 +64,7 @@ export const aboutContent = `
       <summary><span>Changelog</span><span class="about-section-chevron" aria-hidden="true"></span></summary>
       <div class="about-section-body about-changelog">
         <h3>10 November 2026 · Keep open holdings visible during delays</h3>
-        <p>Open markets only keeps waiting holdings visible with their available values. Earlier changes are excluded until today’s comparison is ready.</p>
+        <p>Open markets only keeps waiting holdings visible while data arrives. Earlier changes are excluded until today’s comparison is ready.</p>
         <h3>21 October 2026 · Clearer display and personal formatting</h3>
         <p>Choose Dutch or English number formatting. A warmer design and improved layouts make RichYet easier to read, including with larger text. Last update brings price dates and routine update delays together.</p>
         <h3>17 October 2026 · Keep useful figures during delayed updates</h3>

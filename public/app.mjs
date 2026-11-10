@@ -593,8 +593,7 @@ function rowChangeClass(h,i,c,latest,awaitingUpdate) {
 function rowChangeContent(h,i,c,latest,awaitingUpdate) {
   if (awaitingUpdate) {
     const label = awaitingUpdate === 'price' ? 'Awaiting today’s update' : 'Awaiting comparison';
-    const valueLabel = awaitingUpdate === 'price' && c.value !== null ? 'Last known value' : 'Value';
-    return `<span class="awaiting-label">${label}</span><span class="awaiting-value"><span>${valueLabel}</span> ${esc(formatMoney(c.value,reportingCurrency,{fractionDigits:0}))}</span>`;
+    return `<span class="awaiting-label">${label}</span>`;
   }
   const comparison = purchaseComparison(h,i,c), purchase = period === 'purchase';
   const amount = purchase ? comparison.amount : latest.change, percentage = purchase ? comparison.percentage : latest.changePercent;
