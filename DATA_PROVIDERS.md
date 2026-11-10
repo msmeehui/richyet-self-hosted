@@ -83,8 +83,13 @@ The newer layout does not identify a closing-auction phase. RichYet keeps those
 observations as trades and requires a separately verified previous closing
 price for a comparison. Unsupported formats remain unavailable, with bounded
 private rejection evidence; they are not labelled as proof of a corporate
-action. A previously rejected session with no recorded reason remains blocked:
-installing this reader does not retroactively verify it or erase its warning.
+action. A previously rejected Xetra session remains blocked. When its old warning
+has no recorded cause, RichYet can instead use an independently verified pair of
+completed Newton daily closes for the exact listing. Both prices require their
+original confirmation evidence, compatible dated unit checks and valid dates;
+an unfinished daily row or a mixture with the rejected Xetra trades cannot
+qualify. Known corrections, conflicts, actions and identity changes still veto
+unsafe prices. This does not erase the Xetra warning or establish its cause.
 
 RichYet’s protective ceilings are Alpaca 100 requests/hour, public European sources 180/hour, TickerLayer 80/day, Newton 120/day and EODHD 18/day. Explicit preparation has lower sublimits. These are application limits, **not** statements about your provider’s remaining balance. Other apps using the same keys also consume allowances.
 

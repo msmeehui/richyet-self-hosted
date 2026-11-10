@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace RichYet;
 require_once __DIR__.'/MarketJson.php';
 require_once __DIR__.'/EuropeanHistory.php';
+require_once __DIR__.'/XetraHistoryRecovery.php';
 
 /** Bounded accepted prices and complete comparisons per exact listing. No
  * personal positions, new source confirmations or provider requests live here. */
@@ -39,7 +40,7 @@ final class LastValidMarket
             &&($i['currency']==='EUR'||self::rate($q['previousFx']??null))
             &&($i['provider']!=='alpaca'||($q['fxBaselineVerified']??false)===true&&($q['fxBaselineDate']??$q['previousDate'])===$q['previousDate']);
     }
-    private static function blocked(array $i,array $q,array $state,array $codes,int $now):bool
+    private static function blocked(array $i,array $q,array $state,array $codes,int $now,bool $retained=false):bool
     {
         $id=$i['id'];$date=$q['previousDate']??$q['date']??null;
         if(in_array('listing_unverified',$codes,true)||($i['providerConfig']['identityConfirmed']??false)!==true)return true;
@@ -67,8 +68,9 @@ final class LastValidMarket
         }
         if($i['provider']==='xetra'){
             if(XetraReference::oldBasisUnsafe($state['europe']['xetra']??[],$id,$date,$now))return true;
+            $independent=XetraHistoryRecovery::allows($i,$q,$history,$state['europe']['xetra']??[],$state['europe']['actions']??[],$now,$retained);
             foreach([$q['date']??null,$q['previousDate']??null] as $d)
-                if($d!==null&&($state['europe']['xetra']['sessions'][$id][$d]['invalid']??false)===true)return true;
+                if($d!==null&&($state['europe']['xetra']['sessions'][$id][$d]['invalid']??false)===true&&!$independent)return true;
         }
         if($i['provider']==='euronext'){
             $route=$state['europe']['euronext'][$i['providerConfig']['tradingSchedule']??'']??[];
@@ -134,6 +136,16 @@ final class LastValidMarket
             if(($record['identity']??null)!==$fingerprint)$record=['identity'=>$fingerprint];
             $codes=array_column(array_filter($snapshot['issues'],static fn($v)=>$v['instrumentId']===$id),'code');
             $candidateBlocked=self::blocked($i,$q,$state,$codes,$now);
+            // Cache-only reads can encounter a new veto beside an older saved
+            // independent quote. Do not leave that rejected candidate visible
+            // merely because the provider selector is not running on this read.
+            if($candidateBlocked&&$i['provider']==='xetra'&&($q['source']??null)==='Newton Analytics daily close'){
+                foreach([$q['date']??null,$q['previousDate']??null] as $day)if($day!==null
+                    &&($state['europe']['xetra']['sessions'][$id][$day]['invalid']??false)===true){
+                    $q=array_replace($q,['price'=>null,'previousClose'=>null,'status'=>'missing']);
+                    $snapshot['quotes'][$id]=$q;break;
+                }
+            }
             $invalid=$q['invalidations']??[];
             $incomplete=array_intersect($codes,['baseline_missing','baseline_fx_missing','history_price_missing','history_source_unavailable','history_baseline_missing','history_request_limit','history_invalid']);
             $softCheck=self::softComparisonFailure($i,$state)&&in_array('corporate_action_unverified',$codes,true)
@@ -149,7 +161,7 @@ final class LastValidMarket
             // Migrate the existing secondary record without inventing acceptance.
             foreach(['price'=>false,'comparison'=>true] as $field=>$comparison)if(isset($record[$field])&&self::valid($i,$record[$field],$now,$comparison))
                 $accepted=self::remember($accepted,$record[$field],$comparison);
-            foreach($accepted as $key=>$revision)if(self::blocked($i,$revision['quote'],$state,$codes,$now)
+            foreach($accepted as $key=>$revision)if(self::blocked($i,$revision['quote'],$state,$codes,$now,true)
                 ||($hardInvalid&&self::candidateAffects($i,$q,$revision['quote'],$state,$codes))){
                 unset($accepted[$key]);$record['lastRejectedAt']=$now;$record['lastFailureCodes']=array_values(array_unique($codes));
             }
@@ -185,7 +197,7 @@ final class LastValidMarket
             }
             $saved=$record['comparison']??$record['price']??null;
             if((!$goodPair||$wasEarlier)&&is_array($saved)&&!($hardInvalid&&self::candidateAffects($i,$q,$saved,$state,$codes))
-                &&!self::blocked($i,$saved,$state,$codes,$now)&&self::valid($i,$saved,$now,isset($record['comparison']))){
+                &&!self::blocked($i,$saved,$state,$codes,$now,true)&&self::valid($i,$saved,$now,isset($record['comparison']))){
                 $q=$saved;$q['status']='stale';$q['sourceAvailable']=false;
                 $snapshot['quotes'][$id]=$q;$earlier[$id]=['date'=>$q['date'],'previousDate'=>$q['previousDate']??null];
                 // These failures concern the rejected replacement, not the saved

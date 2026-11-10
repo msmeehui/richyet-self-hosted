@@ -6,6 +6,7 @@ require_once __DIR__ . '/XetraReference.php';
 require_once __DIR__ . '/EuronextProviders.php';
 require_once __DIR__ . '/EuropeanHistory.php';
 require_once __DIR__ . '/EuropeanActions.php';
+require_once __DIR__ . '/XetraHistoryRecovery.php';
 
 /** Public sources only. The caller owns TLS/host restrictions and atomic state storage. */
 final class EuropeanProviders
@@ -131,6 +132,15 @@ final class EuropeanProviders
             &&($history['status']??null)==='closed'&&is_int($history['freshUntil']??null)&&$history['freshUntil']>$now
             &&($history['sourceAvailable']??null)===true;
         $knownVeto=$direct!==null&&($direct['price']??null)===null&&(count(array_intersect(['corporate_action_unverified','listing_unverified'],$direct['issues']??[]))>0||(isset($direct['eligibilityIssue'])&&!$ambiguityResolved));
+        // Preserve the opaque feed warning and every trade it blocks. Only a
+        // separately proven completed Newton pair can replace its missing quote.
+        $sessions=$referenceState['sessions'][$id]??[];krsort($sessions);
+        $latestSession=$sessions?reset($sessions):[];
+        if($knownVeto&&($i['provider']??null)==='xetra'&&$history!==null
+            &&($direct['source']??null)==='Xetra delayed trades'
+            &&($direct['issues']??[])===['corporate_action_unverified']
+            &&XetraHistoryRecovery::opaqueSession($latestSession)
+            &&XetraHistoryRecovery::allows($i,$history,$historyState,$referenceState,$actions,$now))$knownVeto=false;
         $directComplete=($direct['previousClose']??null)!==null&&($direct['price']??null)!==null
             &&($direct['date']??'')>=($history['date']??'')&&($direct['status']??null)!=='stale'
             &&($direct['previousDate']??null)===EuropeanHistory::previousSession($i['mic'],$direct['date']);
@@ -736,7 +746,7 @@ final class EuropeanProviders
     {
         $session =& $state['sessions'][$id][$date];
         if (!is_array($session)) $session = ['trades' => [], 'invalid' => false];
-        if ($invalid) $session['invalid'] = true;
+        if ($invalid) { $session['invalid'] = true; $session['hardInvalid'] = true; }
         else $session['formatUnavailable'] = true;
         $evidence = ['reason'=>$reason, 'schema'=>$schema, 'file'=>$file, 'line'=>$line,
             'rowSha256'=>hash('sha256', json_encode($row, JSON_THROW_ON_ERROR)), 'observedAt'=>$row['tradingDateAndTime']];
@@ -762,7 +772,7 @@ final class EuropeanProviders
         $latest=null;$retained=[];
         foreach($session['trades']??[] as $transaction=>$trade){
             $hash=hash('sha256',json_encode($trade,JSON_THROW_ON_ERROR));
-            if(isset($fingerprints[$transaction])&&$fingerprints[$transaction]!==$hash)$session['invalid']=true;
+            if(isset($fingerprints[$transaction])&&$fingerprints[$transaction]!==$hash){$session['invalid']=true;$session['hardInvalid']=true;}
             $fingerprints[$transaction]=$hash;$time=self::timeKey($trade['time']);
             if($latest===null||$time>$latest){$retained=[$transaction=>$trade];$latest=$time;}elseif($time===$latest)$retained[$transaction]=$trade;
         }
@@ -843,7 +853,7 @@ final class EuropeanProviders
         $date = array_key_first($sessions);
         if ($id !== null && XetraReference::oldBasisUnsafe($referenceState, $id, $date, $now)) return self::missing('Xetra delayed trades', 'corporate_action_unverified');
         $session = $sessions[$date];
-        if (($session['invalid'] ?? true) === true) return self::missing('Xetra delayed trades', 'corporate_action_unverified');
+        if (($session['invalid'] ?? true) === true || ($session['hardInvalid'] ?? false) === true) return self::missing('Xetra delayed trades', 'corporate_action_unverified');
         if (($session['formatUnavailable'] ?? false) === true) {
             $quote = self::missing('Xetra delayed trades', 'source_unavailable');
             $quote['eligibilityIssue'] = 'unsupported_trade_format';
