@@ -258,6 +258,11 @@ test('demo and live About text distinguish fictional prices, account saving and 
   assert.match(live, /Prices may be delayed/);
   assert.doesNotMatch(live,/Your holdings are saved privately|Coverage is limited to checked listings/);
   assert.match(live,/same previous value of the whole portfolio/);
+  for (const content of [live,demo]) {
+    assert.match(content,/including those awaiting today’s update/);
+    assert.match(content,/usable current-session changes/);
+    assert.doesNotMatch(content,/includes ready open-market holdings|shows holdings with usable updates/);
+  }
 });
 
 

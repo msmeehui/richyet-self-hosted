@@ -124,8 +124,12 @@ export function selectComparisonEntries(entries, value = 'active', nowMs = Date.
   const activeIds = new Set(active.comparisonEntries.map(entry=>entry.holding.id));
   const awaitingEntries = openMarkets.comparisonEntries.filter(entry=>!activeIds.has(entry.holding.id)
     && getExchangeSession(entry.instrument,nowMs,entry.quote).state === 'open');
+  // Visibility follows open markets; contribution readiness remains independent.
+  // Daily funds retain their existing admission and reporting-window rules.
+  const visibleIds = new Set([...active.comparisonEntries,...awaitingEntries].map(entry=>entry.holding.id));
+  const visibleActiveEntries = entries.filter(entry=>visibleIds.has(entry.holding.id));
   const referenceEntries = entries.map(entry=>datedComparison(entry,nowMs));
   return {mode, referenceEntries, comparisonEntries:mode === 'active' ? active.comparisonEntries : referenceEntries,
-    activeEntries:active.comparisonEntries,completeActiveCount:active.completeCount,
+    activeEntries:active.comparisonEntries,visibleActiveEntries,completeActiveCount:active.completeCount,
     awaitingEntries,failedInstrumentIds:active.failedInstrumentIds,openMarkets};
 }

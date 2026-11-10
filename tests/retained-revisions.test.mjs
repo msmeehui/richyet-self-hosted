@@ -18,9 +18,9 @@ test('a rejected Xetra session falls back to an unaffected accepted pair across 
  assert.equal(entry.quote.date,'2026-11-06');assert.equal(entry.quote.previousDate,'2026-11-05');
  assert.equal(entry.quote.observedAt,'2026-11-06T16:30:00Z');
  const active=selectHoldingSections(entries,Date.parse('2026-11-10T09:00:00Z'),'active');
- assert.deepEqual(active.visibleEntries.map(e=>e.holding.id),['healthy']);
+ assert.deepEqual(active.visibleEntries.map(e=>e.holding.id),['fictional-position','healthy']);
  assert.equal(calculatePortfolio(active.entries).value,636,'All-holdings valuation keeps the retained holding even while its market is awaiting a usable update');
- const selected=calculateLatestContribution(active.visibleEntries,entries);
+ const selected=calculateLatestContribution(active.comparisonEntries,entries);
  assert.equal(selected.referenceBaseline,600);assert.equal(selected.change,30);assert.equal(selected.changePercent,5);
  assert.equal(calculateHolding({...holding,quantity:'6',averageCost:'90'},instrument,entry.quote).purchaseGain,72,'Retained source figures use the currently saved units and cost');
 });

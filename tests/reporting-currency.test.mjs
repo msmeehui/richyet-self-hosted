@@ -152,3 +152,25 @@ test('open-market readiness and detail selection calculate in the chosen currenc
 test('last valid reporting rates remain numeric after expiry with a dated stale warning',()=>{
  for(const mutate of [c=>{c.fx.status='stale';},c=>{c.fx.freshUntil='2026-10-15T11:59:59Z';}]) {const c=context('GBP');mutate(c);const e=row('EUR');assert.equal(calc(e,c).value,390);assert.equal(calc(e,c).purchaseGain,52.5);assert.ok(reportingIssues(e.instrument,e.quote,[],c).some(x=>x.code==='fx_stale'));}
 });
+
+test('waiting open rows preserve reporting values and the whole reference while excluding their previous-session movement',()=>{
+  const schedule={type:'ETF',mic:'XETA',timeZone:'Europe/Berlin',closeSchedule:'xetra_etf_regular_2026'};
+  const retained=row('EUR',{instrument:schedule,quote:{observedAt:'2026-10-14T15:30:00Z'}});
+  const ready=row('EUR',{holding:{id:'ready-position',instrumentId:'ready-instrument'},instrument:{...schedule,id:'ready-instrument'},quote:{date:'2026-10-15',previousDate:'2026-10-14',observedAt:'2026-10-15T11:30:00Z',priceKind:'trade',status:'delayed'}});
+  for(const currency of ['EUR','USD','GBP']) {
+    const reporting=context(currency),rows=[retained,ready];
+    const selection=selectComparisonEntries(rows,'active',now,null,reporting);
+    const view=selectHoldingSections(rows,now,'active',null,reporting);
+    assert.equal(view.visibleEntries.length,2);assert.equal(view.visibleEntries[0].awaitingUpdate,'price');
+    assert.deepEqual(selection.comparisonEntries.map(e=>e.holding.id),[ready.holding.id]);
+    assert.equal(calc(view.visibleEntries[0],reporting).value,calc(retained,reporting).value);
+    const contribution=calculateLatestContribution(selection.comparisonEntries,selection.referenceEntries,reporting);
+    assert.equal(contribution.change,calc(ready,reporting).change);
+    assert.equal(contribution.referenceBaseline,calculateLatestContribution(rows,rows,reporting).referenceBaseline);
+    assert.deepEqual(calculatePortfolio(view.entries,reporting),calculatePortfolio(rows,reporting));
+  }
+  const missingFx={currency:'USD',fx:null,nowMs:now};
+  const view=selectHoldingSections([retained,ready],now,'active',null,missingFx);
+  assert.equal(view.visibleEntries.length,2);
+  assert.equal(calc(view.visibleEntries[0],missingFx).value,null,'A missing reporting conversion never fabricates a value');
+});

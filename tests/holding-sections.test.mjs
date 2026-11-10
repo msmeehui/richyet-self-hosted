@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {selectHoldingSections, formatHoldingObservation} from '../public/lib/holding-sections.mjs';
-import {calculateHolding, calculatePortfolio, calculateLatestSubtotal} from '../public/lib/portfolio.mjs';
+import {calculateHolding, calculatePortfolio, calculateLatestSubtotal, calculateLatestContribution} from '../public/lib/portfolio.mjs';
 
 const at = Date.parse;
 const us = {id:'fictional-us',type:'Stock',currency:'USD',mic:'XNAS',timeZone:'America/New_York',closeSchedule:'us_retained_calendar'};
@@ -138,7 +138,8 @@ test('repartitioning at a market boundary preserves each filtered custom order a
   const before = selectHoldingSections(rows,at('2026-10-13T13:29:59Z'));
   const after = selectHoldingSections(rows,at('2026-10-13T13:30:00Z'));
   assert.deepEqual(ids(before.sections.find(s=>s.id==='closed').entries),[rows[0].holding.id,rows[2].holding.id,rows[3].holding.id]);
-  assert.deepEqual(ids(after.sections.find(s=>s.id==='open').entries),[rows[1].holding.id]);
+  assert.deepEqual(ids(after.sections.find(s=>s.id==='open').entries),ids(rows.slice(0,3)));
+  assert.deepEqual(ids(after.comparisonEntries),[rows[1].holding.id]);
   assert.deepEqual(ids(after.entries),ids(rows));assert.deepEqual(rows,clone);assert.deepEqual(calculatePortfolio(rows),total);
 });
 
@@ -171,14 +172,54 @@ test('invalid or future observation time falls back only to a valid explicit dat
 });
 
 
-test('visible list keeps full custom order in All and purchase but only eligible open holdings and daily funds in Active',()=>{
+test('visible list keeps full custom order in All and purchase but all known-open holdings and eligible daily funds in Active',()=>{
   const daily={...fund,contributionSchedule:'bnd_daily_amsterdam'};
   const nav=entry(daily,{status:'nav',priceKind:'nav',date:'2026-10-12',previousDate:'2026-10-09',observedAt:null,
     fundContribution:{valuationDate:'2026-10-12',firstObservedAt:'2026-10-13T06:00:00Z',windowDate:'2026-10-13'}});
   const rows=[entry(us),nav,entry(ams,{previousClose:null}),entry(unknown),entry(xetra)];
   const original=structuredClone(rows),now=at('2026-10-13T10:00:00Z');
-  assert.deepEqual(ids(selectHoldingSections(rows,now,'active').visibleEntries),[nav.holding.id,rows[4].holding.id]);
+  assert.deepEqual(ids(selectHoldingSections(rows,now,'active').visibleEntries),[nav.holding.id,rows[2].holding.id,rows[4].holding.id]);
+  assert.deepEqual(ids(selectHoldingSections(rows,now,'active').comparisonEntries),[nav.holding.id,rows[4].holding.id]);
   for(const mode of ['all','purchase'])assert.deepEqual(ids(selectHoldingSections(rows,now,mode).visibleEntries),ids(rows));
   assert.deepEqual(selectHoldingSections(rows,at('2026-10-13T23:00:00Z'),'active').visibleEntries,[]);
   assert.deepEqual(rows,original);
+});
+
+test('a retained Xetra pair remains visible on a later open session without entering its filtered movement',()=>{
+  const now=at('2026-11-10T09:00:00Z');
+  const retained=entry(xetra,{price:'102',previousClose:'100',date:'2026-11-06',previousDate:'2026-11-05',
+    observedAt:'2026-11-06T16:30:00Z',priceKind:'close',status:'stale',sourceAvailable:false});
+  const healthy=entry(ams,{price:'110',date:'2026-11-10',previousDate:'2026-11-09',observedAt:'2026-11-10T08:30:00Z'});
+  const rows=[retained,healthy],before=structuredClone(rows),total=calculatePortfolio(rows);
+  const active=selectHoldingSections(rows,now,'active');
+  assert.deepEqual(ids(active.visibleEntries),ids(rows));
+  assert.equal(active.visibleEntries[0].awaitingUpdate,'price');
+  assert.equal(active.visibleEntries[0].quote,retained.quote);
+  assert.equal(calculation(active.visibleEntries[0]).change,null);
+  assert.equal(calculation(active.visibleEntries[0]).value,1020);
+  assert.deepEqual(ids(active.comparisonEntries),[healthy.holding.id]);
+  const filtered=calculateLatestContribution(active.comparisonEntries,rows);
+  assert.equal(filtered.change,100);assert.equal(filtered.referenceBaseline,2000);assert.equal(filtered.changePercent,5);
+  assert.equal(total.value,2120);assert.equal(total.change,120);assert.equal(total.purchaseGain,320);
+  for(const mode of ['all','purchase']) {
+    const view=selectHoldingSections(rows,now,mode);
+    assert.deepEqual(ids(view.visibleEntries),ids(rows));
+    assert.equal(view.visibleEntries[0].awaitingUpdate,null);
+    assert.equal(calculation(view.visibleEntries[0]).change,20);
+    assert.deepEqual(calculatePortfolio(view.entries),total);
+  }
+  assert.deepEqual(rows,before,'Display projection preserves the accepted source pair and saved position');
+});
+
+test('first-ever missing price and current-price missing baseline remain visible without inventing a value or change',()=>{
+  const missing=entry(xetra,{price:null,previousClose:null,date:null,previousDate:null,observedAt:null,status:'unavailable'});
+  const baseline=entry(ams,{previousClose:null,previousDate:null});
+  const result=selectHoldingSections([missing,baseline],at('2026-10-13T10:00:00Z'),'active');
+  assert.deepEqual(ids(result.visibleEntries),[missing.holding.id,baseline.holding.id]);
+  assert.deepEqual(result.visibleEntries.map(e=>e.awaitingUpdate),['price','comparison']);
+  assert.equal(calculation(result.visibleEntries[0]).value,null);
+  assert.equal(calculation(result.visibleEntries[1]).value,1020);
+  assert.equal(result.comparisonEntries.length,0);
+  assert.equal(calculatePortfolio(result.entries).completeValue,false);
+  for(const e of result.visibleEntries)assert.equal(calculation(e).change,null);
 });

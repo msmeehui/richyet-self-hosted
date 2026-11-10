@@ -7,22 +7,26 @@ import {selectComparisonEntries} from './comparison-modes.mjs';
  * Active withholds a known-open holding's prior-session result using the same
  * current-session selection as the top subtotal. All holdings and the daily
  * details in Since purchase retain the original dated pair. Value and purchase
- * cost inputs are untouched. Active projects only eligible holdings; the other
- * modes retain the complete saved order. Valid current-session pairs remain
+ * cost inputs are untouched. Active also displays known-open holdings awaiting
+ * their first usable comparison; the other modes retain the complete saved order. Valid current-session pairs remain
  * visible through ordinary refresh failures, with freshness reported separately.
  */
 export function selectHoldingSections(entries, nowMs = Date.now(), value = 'active', tracker = null, reporting = null) {
-  const {mode, comparisonEntries, activeEntries, openMarkets} = selectComparisonEntries(entries,value,nowMs,tracker,reporting);
+  const {mode, comparisonEntries, visibleActiveEntries, awaitingEntries, openMarkets} = selectComparisonEntries(entries,value,nowMs,tracker,reporting);
+  const awaitingIds = new Set(awaitingEntries.map(entry=>entry.holding.id));
   const comparisons = new Map(comparisonEntries.map(entry=>[entry.holding.id,entry]));
   const displayEntries = entries.map(entry => {
     const sessionState = getExchangeSession(entry?.instrument,nowMs,entry?.quote).state;
     const activeFund = sessionState === 'fund' && getFundContribution(entry.instrument,entry.quote,nowMs).active;
     const comparisonEntry = mode !== 'active' || sessionState === 'open' || activeFund
       ? comparisons.get(entry.holding.id) ?? {...entry,quote:{...entry.quote,previousClose:null,previousFx:null}} : entry;
+    const waitingForCurrentSession = openMarkets.waitingInstrumentIds.includes(entry.holding.instrumentId);
     return {...entry,sessionState,activeFund,comparisonQuote:comparisonEntry?.quote,
-      waitingForCurrentSession:mode === 'active' && openMarkets.waitingInstrumentIds.includes(entry.holding.instrumentId)};
+      awaitingUpdate:mode === 'active' && awaitingIds.has(entry.holding.id)
+        ? waitingForCurrentSession || entry.quote?.price == null ? 'price' : 'comparison' : null,
+      waitingForCurrentSession:mode === 'active' && waitingForCurrentSession};
   });
-  const activeIds = new Set(activeEntries.map(entry=>entry.holding.id));
+  const activeIds = new Set(visibleActiveEntries.map(entry=>entry.holding.id));
   const active = displayEntries.filter(entry=>activeIds.has(entry.holding.id));
   const inactive = displayEntries.filter(entry=>!activeIds.has(entry.holding.id));
   return {mode,entries:displayEntries,visibleEntries:mode === 'active' ? active : displayEntries,comparisonEntries,openMarkets,sections:[

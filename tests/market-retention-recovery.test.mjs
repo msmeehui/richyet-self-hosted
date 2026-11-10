@@ -20,7 +20,7 @@ test('missing Euronext quote retains full totals in both views without admitting
  assert.equal(selected.change,30);assert.equal(selected.referenceBaseline,600);assert.equal(selected.changePercent,5);
  const now=Date.parse('2026-10-22T07:30:00Z');
  const active=selectHoldingSections(entries,now,'active');
- assert.deepEqual(active.visibleEntries.map(e=>e.holding.id),['healthy']);
+ assert.deepEqual(active.visibleEntries.map(e=>e.holding.id),['fictional-position','healthy']);
  assert.equal(calculatePortfolio(active.entries).value,645,'Full portfolio value still includes the retained holding');
  for(const mode of ['all','purchase']){
   const view=selectHoldingSections(entries,now,mode);

@@ -355,14 +355,14 @@ function updateHoldingPresentation(presentation,now) {
     const hide = !managing && !visibleIds.has(selected.holding.id);
     if (hide && item.contains?.(document.activeElement)) document.querySelector(`input[name="period"][value="${period === 'purchase' ? 'purchase' : 'latest'}"]`)?.focus({preventScroll:true});
     item.hidden = hide;
-    const {holding:h,instrument:i,quote:q,comparisonQuote,waitingForCurrentSession,sessionState,activeFund} = selected;
+    const {holding:h,instrument:i,quote:q,comparisonQuote,waitingForCurrentSession,awaitingUpdate,sessionState,activeFund} = selected;
     const c = calculateHolding(h,i,q), latest = calculateHolding(h,i,comparisonQuote);
     item.classList.toggle('is-closed',sessionState === 'closed' || (sessionState === 'fund' && !activeFund));
     const observation = item.querySelector('[data-observation-id]');
     const time = formatHoldingObservation(i,q,now);
     if (observation) {observation.textContent = time || 'Date unavailable'; observation.hidden = false;}
     const row = item.querySelector('.row-change');
-    if (row) {row.className = rowChangeClass(h,i,c,latest); row.innerHTML = rowChangeContent(h,i,c,latest);}
+    if (row) {row.className = rowChangeClass(h,i,c,latest,awaitingUpdate); row.innerHTML = rowChangeContent(h,i,c,latest,awaitingUpdate);}
     const grid = item.querySelector('.details-grid');
     if (grid) {
       const share = completeShares ? c.value / total.value * 100 : null;
@@ -464,7 +464,7 @@ function displayedPriceUpdate(now=Date.now()) {
   return latestPriceUpdate(holdings.filter(h=>priceUpdateHoldingIds.has(h.id)),instruments,quotes,priceUpdates,now);
 }
 function renderPriceUpdate(selection,effectiveMode,now=Date.now()) {
-  const visible = effectiveMode === 'active' ? selection.activeEntries.map(item=>item.holding) : holdings;
+  const visible = effectiveMode === 'active' ? selection.visibleActiveEntries.map(item=>item.holding) : holdings;
   priceUpdateHoldingIds = new Set(visible.map(h=>h.id));
   const update = displayedPriceUpdate(now);
   $('price-update').textContent = priceUpdateLabel(update) || 'Last update';
@@ -585,11 +585,17 @@ function renderDetails(h,i,q,c,latest,share,waitingForCurrentSession) {
     <div class="details-footer"><p class="price-timestamp">${esc(priceDateMessage(i,q))}</p>${i.contributionSchedule === 'bnd_daily_amsterdam' ? '<p class="date-note">With Open markets only selected, each new daily value contributes once, during 09:00–17:30 Amsterdam on a weekday. These are RichYet’s reporting hours, not fund trading hours.</p>' : ''}</div>
   </div>`;
 }
-function rowChangeClass(h,i,c,latest) {
+function rowChangeClass(h,i,c,latest,awaitingUpdate) {
+  if (awaitingUpdate) return 'row-change is-awaiting';
   const amount = period === 'purchase' ? purchaseComparison(h,i,c).amount : latest.change;
   return `row-change ${signClass(amount)}${period === 'active' ? ' is-latest' : ''}`;
 }
-function rowChangeContent(h,i,c,latest) {
+function rowChangeContent(h,i,c,latest,awaitingUpdate) {
+  if (awaitingUpdate) {
+    const label = awaitingUpdate === 'price' ? 'Awaiting today’s update' : 'Awaiting comparison';
+    const valueLabel = awaitingUpdate === 'price' && c.value !== null ? 'Last known value' : 'Value';
+    return `<span class="awaiting-label">${label}</span><span class="awaiting-value"><span>${valueLabel}</span> ${esc(formatMoney(c.value,reportingCurrency,{fractionDigits:0}))}</span>`;
+  }
   const comparison = purchaseComparison(h,i,c), purchase = period === 'purchase';
   const amount = purchase ? comparison.amount : latest.change, percentage = purchase ? comparison.percentage : latest.changePercent;
   return `<span class="change-percent">${esc(formatPercent(percentage))}</span><span class="change-amount">${esc(formatMoney(amount,purchase ? comparison.currency : reportingCurrency,{signed:true,fractionDigits:0}))}</span>`;
@@ -686,12 +692,12 @@ function renderAtCurrentTime() {
   $('add-investment').hidden = !managing;
   $('holdings-list').classList.toggle('manage-mode',managing);
   $('empty-state').hidden = holdings.length !== 0;
-  const rowMarkup = new Map(rows.map(({holding:h,instrument:i,quote:q,comparisonQuote,waitingForCurrentSession,sessionState,activeFund},index) => {
+  const rowMarkup = new Map(rows.map(({holding:h,instrument:i,quote:q,comparisonQuote,waitingForCurrentSession,awaitingUpdate,sessionState,activeFund},index) => {
     const c = byHolding.get(h.id), latest = calculateHolding(h,i,comparisonQuote), open = !managing && expandedId === h.id;
     const closed = sessionState === 'closed' || (sessionState === 'fund' && !activeFund);
     const share = completeShares ? c.value / total.value * 100 : null;
     return [h.id,`<article class="holding-item ${open ? 'is-expanded' : ''}${closed ? ' is-closed' : ''}" data-holding-id="${esc(h.id)}" data-market-id="${esc(i.id)}"><div class="holding-row">
-      ${managing ? `<button class="drag-handle" id="drag-${esc(h.id)}" type="button" data-id="${esc(h.id)}" aria-label="Move ${esc(i.name)}, position ${index+1} of ${holdings.length}. Drag, use arrow keys, or activate to choose a position." aria-keyshortcuts="ArrowUp ArrowDown Home End" title="Drag or choose position" ${holdings.length<2?'disabled':''}><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="8" cy="5" r="1.7"/><circle cx="16" cy="5" r="1.7"/><circle cx="8" cy="12" r="1.7"/><circle cx="16" cy="12" r="1.7"/><circle cx="8" cy="19" r="1.7"/><circle cx="16" cy="19" r="1.7"/></svg></button><button class="instrument-cell manage-instrument edit-holding" id="edit-${esc(h.id)}" type="button" data-id="${esc(h.id)}" aria-label="Edit ${esc(i.name)}">${instrumentCopy(i,true)}<svg class="edit-pencil" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m16 3 5 5M4 20l5-1L21 7a2.1 2.1 0 0 0-5-5L4 14l-1 7Z"/></svg></button><button class="remove-button" id="remove-${esc(h.id)}" type="button" data-id="${esc(h.id)}" aria-label="Remove ${esc(i.name)}"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg></button>` : `<button class="holding-toggle" id="toggle-${esc(h.id)}" type="button" data-id="${esc(h.id)}" aria-expanded="${open}" aria-controls="details-${esc(h.id)}"><span class="instrument-cell">${instrumentCopy(i,true)}</span><span class="${rowChangeClass(h,i,c,latest)}">${rowChangeContent(h,i,c,latest)}</span><svg class="chevron" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m4 7 5 5 5-5"/></svg></button>`}
+      ${managing ? `<button class="drag-handle" id="drag-${esc(h.id)}" type="button" data-id="${esc(h.id)}" aria-label="Move ${esc(i.name)}, position ${index+1} of ${holdings.length}. Drag, use arrow keys, or activate to choose a position." aria-keyshortcuts="ArrowUp ArrowDown Home End" title="Drag or choose position" ${holdings.length<2?'disabled':''}><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false"><circle cx="8" cy="5" r="1.7"/><circle cx="16" cy="5" r="1.7"/><circle cx="8" cy="12" r="1.7"/><circle cx="16" cy="12" r="1.7"/><circle cx="8" cy="19" r="1.7"/><circle cx="16" cy="19" r="1.7"/></svg></button><button class="instrument-cell manage-instrument edit-holding" id="edit-${esc(h.id)}" type="button" data-id="${esc(h.id)}" aria-label="Edit ${esc(i.name)}">${instrumentCopy(i,true)}<svg class="edit-pencil" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m16 3 5 5M4 20l5-1L21 7a2.1 2.1 0 0 0-5-5L4 14l-1 7Z"/></svg></button><button class="remove-button" id="remove-${esc(h.id)}" type="button" data-id="${esc(h.id)}" aria-label="Remove ${esc(i.name)}"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg></button>` : `<button class="holding-toggle" id="toggle-${esc(h.id)}" type="button" data-id="${esc(h.id)}" aria-expanded="${open}" aria-controls="details-${esc(h.id)}"><span class="instrument-cell">${instrumentCopy(i,true)}</span><span class="${rowChangeClass(h,i,c,latest,awaitingUpdate)}">${rowChangeContent(h,i,c,latest,awaitingUpdate)}</span><svg class="chevron" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m4 7 5 5 5-5"/></svg></button>`}
     </div>${open ? renderDetails(h,i,q,c,latest,share,waitingForCurrentSession) : `<div id="details-${esc(h.id)}" hidden></div>`}</article>`];
   }));
   const listMarkup = rows.map(({holding})=>rowMarkup.get(holding.id)).join('');
