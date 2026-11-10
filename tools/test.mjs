@@ -17,6 +17,6 @@ function run(command,args) {
   if(result.error || result.status!==0) process.exit(result.status || 1);
 }
 run(process.execPath,['--test',...readdirSync(new URL('../tests/',import.meta.url)).filter(name=>name.endsWith('.test.mjs')).sort().map(name=>`tests/${name}`)]);
-for(const file of ['self-host-bootstrap','self-host-catalogue','last-valid-market','market-retention-recovery','retention-provider-scope','incomplete-identity-retention','retained-revisions','reporting','market-calendars']) {
+for(const file of ['self-host-bootstrap','self-host-catalogue','last-valid-market','market-retention-recovery','retention-provider-scope','incomplete-identity-retention','xetra-reference-retention','retained-revisions','reporting','market-calendars']) {
   run(php,['-d','allow_url_fopen=0',`tests/${file}.test.php`]);
 }

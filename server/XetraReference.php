@@ -23,11 +23,26 @@ final class XetraReference
             $csv = $get(self::HOST . $paths[0], 8388608);
             $reference = self::parse($csv, $instruments, $now);
             foreach ($reference['rows'] as $id => &$row) {
+                // A supplied exchange instrument ID can contradict the accepted
+                // identity even when another required column is omitted.
+                $acceptedId = isset($state['referenceIdentity'][$id]) ? explode('|', $state['referenceIdentity'][$id])[0] : null;
+                if ($acceptedId !== null && ($row['instrumentId'] ?? null) !== null && $row['instrumentId'] !== $acceptedId) {
+                    $state['referenceRevoked'][$id] = min($state['referenceRevoked'][$id] ?? $reference['date'], $reference['date']);
+                    $row['valid'] = false;
+                    $row['incompatible'] = true;
+                }
                 if ($row['valid']) {
                     if (isset($state['referenceIdentity'][$id]) && $state['referenceIdentity'][$id] !== $row['identity']) {
                         $state['referenceRevoked'][$id] = min($state['referenceRevoked'][$id] ?? $reference['date'], $reference['date']);
                         $row['valid'] = false;
+                        $row['incompatible'] = true;
                     } else $state['referenceIdentity'][$id] = $row['identity'];
+                }
+                if (!$row['valid'] && !$row['incompatible']) {
+                    // Replacing a same-day file, or pruning older reference
+                    // dates, cannot erase a previously observed veto. Carry its
+                    // original receipt without claiming a new confirmation.
+                    $row['retainedVeto'] = self::referenceVeto($state, $id, $reference['date']);
                 }
                 // An explicit action stays known even if a later replacement
                 // file removes its marker or all subsequent requests fail.
@@ -69,7 +84,10 @@ final class XetraReference
             if (!is_array($header) || count($header) > 256 || count($header) !== count(array_unique($header))
                 || array_diff($required, $header)) throw new \RuntimeException('Incomplete reference header.');
             $rows = $found = []; $count = 0;
-            foreach ($instruments as $instrument) $rows[$instrument['id']] = ['valid' => false, 'identity' => null, 'indicator' => null];
+            // Absence is not a withdrawal: only explicit conflicting values can
+            // invalidate an already accepted valuation. New comparisons still
+            // require valid=true through compatible().
+            foreach ($instruments as $instrument) $rows[$instrument['id']] = ['valid' => false, 'incompatible' => false, 'identity' => null, 'instrumentId' => null, 'indicator' => null, 'retainedVeto' => null];
             while (($values = fgetcsv($stream, 65537, ';', '"', '')) !== false) {
                 if ($values === [null]) continue;
                 if (++$count > 20000 || count($values) !== count($header)) throw new \RuntimeException('Incomplete reference row.');
@@ -80,12 +98,21 @@ final class XetraReference
                     if (isset($found[$id])) throw new \RuntimeException('Duplicate reference listing.');
                     $found[$id] = true;
                     $indicator = $row['CUM/EX Indicator'];
+                    $expected = ['Product Status' => 'Active', 'Instrument Status' => 'Active', 'MIC Code' => 'XETR',
+                        'Unit of Quotation' => 'Shares', 'Currency' => $instrument['currency'], 'Settlement Currency' => $instrument['currency']];
+                    $incompatible = false;
+                    foreach ($expected as $field => $value) if (trim($row[$field]) !== '' && $row[$field] !== $value) $incompatible = true;
+                    $instrumentIdValid = preg_match('/^[1-9][0-9]{0,19}$/D', $row['Instrument ID']) === 1;
+                    if ((trim($row['Instrument ID']) !== '' && !$instrumentIdValid)
+                        || (trim($indicator) !== '' && !in_array($indicator, ['C', 'E'], true))) $incompatible = true;
                     $valid = $row['Product Status'] === 'Active' && $row['Instrument Status'] === 'Active'
-                        && preg_match('/^[1-9][0-9]{0,19}$/D', $row['Instrument ID']) && $row['MIC Code'] === 'XETR'
+                        && $instrumentIdValid && $row['MIC Code'] === 'XETR'
                         && $row['Unit of Quotation'] === 'Shares' && $row['Currency'] === $instrument['currency']
                         && $row['Settlement Currency'] === $instrument['currency'] && in_array($indicator, ['', 'C', 'E'], true);
-                    $rows[$id] = ['valid' => (bool) $valid, 'identity' => $valid ? implode('|', [$row['Instrument ID'], $row['ISIN'], $row['Reporting Market'], $row['Unit of Quotation'], $row['Currency']]) : null,
-                        'indicator' => in_array($indicator, ['', 'C', 'E'], true) ? $indicator : null];
+                    $rows[$id] = ['valid' => (bool) $valid, 'incompatible' => $incompatible,
+                        'identity' => $valid ? implode('|', [$row['Instrument ID'], $row['ISIN'], $row['Reporting Market'], $row['Unit of Quotation'], $row['Currency']]) : null,
+                        'instrumentId' => $instrumentIdValid ? $row['Instrument ID'] : null,
+                        'indicator' => in_array($indicator, ['', 'C', 'E'], true) ? $indicator : null, 'retainedVeto' => null];
                 }
             }
             if ($count === 0) throw new \RuntimeException('Empty reference catalogue.');
@@ -185,6 +212,21 @@ final class XetraReference
     }
     private static function timeKey(string $value): string { $p=explode('.',rtrim($value,'Z'),2);return $p[0].'.'.str_pad($p[1]??'',9,'0'); }
 
+    /** The latest conclusive reference, including ambiguous legacy invalidity. */
+    private static function referenceVeto(array $state, string $id, string $through): ?array
+    {
+        $references = $state['references'] ?? []; krsort($references);
+        foreach ($references as $date => $reference) {
+            if ($date > $through) continue;
+            $row = $reference['rows'][$id] ?? [];
+            if (($row['valid'] ?? false) === true) return null;
+            if (is_array($row['retainedVeto'] ?? null)) return $row['retainedVeto'];
+            if (($row['incompatible'] ?? null) === false) continue;
+            return ['date' => $date, 'sha256' => $reference['sha256'] ?? null, 'retrievedAt' => $reference['retrievedAt'] ?? null];
+        }
+        return null;
+    }
+
     /** Used on cache-only reads too, before the first post-action observation. */
     public static function oldBasisUnsafe(array $state, string $id, ?string $quoteDate, int $now): bool
     {
@@ -195,8 +237,14 @@ final class XetraReference
         $references = $state['references'] ?? []; krsort($references);
         foreach ($references as $date => $reference) {
             if ($date > $today) continue;
-            // Only the newest effective reference governs listing availability.
-            return ($reference['rows'][$id]['valid'] ?? false) !== true;
+            $row = $reference['rows'][$id] ?? [];
+            if (($row['valid'] ?? false) === true) return false;
+            // A classified missing/incomplete row cannot revoke earlier proof,
+            // nor hide an earlier incompatible reference. Legacy invalid rows
+            // did not distinguish absence from conflicts: keep their veto until
+            // a later valid reference resolves it, rather than guessing.
+            if (($row['incompatible'] ?? null) === false && !is_array($row['retainedVeto'] ?? null)) continue;
+            return true;
         }
         return false;
     }
