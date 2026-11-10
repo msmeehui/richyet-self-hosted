@@ -1,0 +1,26 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {normalizeMarketSnapshot} from '../public/lib/market.mjs';
+import {calculateHolding,calculatePortfolio,calculateLatestContribution} from '../public/lib/portfolio.mjs';
+import {selectHoldingSections} from '../public/lib/holding-sections.mjs';
+const php=process.env.PHP_BINARY;
+test('a rejected Xetra session falls back to an unaffected accepted pair across all portfolio totals',{skip:!php},()=>{
+ const {instrument,snapshot}=JSON.parse(execFileSync(php,[fileURLToPath(new URL('./retained-revisions.test.php',import.meta.url)),'--json'],{encoding:'utf8'}));
+ const market=normalizeMarketSnapshot(snapshot,[instrument]);
+ const holding={id:'fictional-position',instrumentId:instrument.id,quantity:'3',averageCost:'80',eurCost:null};
+ const entry={holding,instrument,quote:market.quotes[instrument.id]};
+ const healthy={holding:{...holding,id:'healthy',instrumentId:'healthy'},instrument:{...instrument,id:'healthy'},quote:{...entry.quote,price:'110',previousClose:'100',date:'2026-11-10',previousDate:'2026-11-09',observedAt:'2026-11-10T08:30:00Z',priceKind:'trade',status:'delayed',sourceAvailable:true}};
+ const entries=[entry,healthy],total=calculatePortfolio(entries);
+ assert.equal(total.value,636);assert.equal(total.change,36);assert.equal(total.changePercent,6);
+ assert.equal(total.purchaseGain,156);assert.equal(total.purchaseGainPercent,32.5);
+ assert.equal(entry.quote.date,'2026-11-06');assert.equal(entry.quote.previousDate,'2026-11-05');
+ assert.equal(entry.quote.observedAt,'2026-11-06T16:30:00Z');
+ const active=selectHoldingSections(entries,Date.parse('2026-11-10T09:00:00Z'),'active');
+ assert.deepEqual(active.visibleEntries.map(e=>e.holding.id),['healthy']);
+ assert.equal(calculatePortfolio(active.entries).value,636,'All-holdings valuation keeps the retained holding even while its market is awaiting a usable update');
+ const selected=calculateLatestContribution(active.visibleEntries,entries);
+ assert.equal(selected.referenceBaseline,600);assert.equal(selected.change,30);assert.equal(selected.changePercent,5);
+ assert.equal(calculateHolding({...holding,quantity:'6',averageCost:'90'},instrument,entry.quote).purchaseGain,72,'Retained source figures use the currently saved units and cost');
+});

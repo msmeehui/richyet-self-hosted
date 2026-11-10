@@ -4,10 +4,11 @@ namespace RichYet;
 require_once __DIR__.'/MarketJson.php';
 require_once __DIR__.'/EuropeanHistory.php';
 
-/** One last validated price and complete comparison per exact listing. No
+/** Bounded accepted prices and complete comparisons per exact listing. No
  * personal positions, new source confirmations or provider requests live here. */
 final class LastValidMarket
 {
+    private const HISTORY_LIMIT = 8;
     private static function identity(array $i,array $state):string
     {
         return hash('sha256',json_encode([$i['id'],$i['provider'],$i['currency'],$i['mic']??null,$i['isin']??null,
@@ -83,6 +84,45 @@ final class LastValidMarket
         return $i['provider']==='alpaca'?($state['us']['comparisonChecks'][$i['id']]??null)==='unavailable'
             :($state['europe']['actions'][$i['id']]['failed']??false)===true;
     }
+    /** Scope only provider-confirmed date-local corrections. A generic
+     * current/comparison veto is not proof that earlier units remain safe. */
+    private static function candidateAffects(array $i,array $candidate,array $saved,array $state,array $codes):bool
+    {
+        $invalid=$candidate['invalidations']??[];
+        if(in_array('listing',$invalid,true)||in_array('history_basis_unverified',$codes,true))return true;
+        $localCorrection=static function(?string $date)use($i,$state):bool{
+            if(!MarketJson::date($date))return false;
+            if($i['provider']==='xetra')return ($state['europe']['xetra']['sessions'][$i['id']][$date]['invalid']??false)===true;
+            if($i['provider']==='euronext')return isset($state['europe']['euronext'][$i['providerConfig']['tradingSchedule']??'']['invalidDates'][$i['id']][$date]);
+            return false;
+        };
+        $dates=[];
+        if(in_array('current',$invalid,true)){
+            if(!$localCorrection($candidate['date']??null))return true;
+            $dates[]=$candidate['date'];
+        }
+        if(in_array('comparison',$invalid,true)){
+            $current=$candidate['date']??null;$previous=$candidate['previousDate']??null;
+            if(!$localCorrection($current)&&!$localCorrection($previous))return true;
+            if($localCorrection($current))$dates[]=$current;
+            if($localCorrection($previous))$dates[]=$previous;
+        }
+        return (bool)array_intersect($dates,[$saved['date']??null,$saved['previousDate']??null]);
+    }
+    /** Keep at most eight dated revisions. Repeated intraday polls replace
+     * their own date/type, so they cannot evict every preceding session. */
+    private static function remember(array $history,array $quote,bool $comparison):array
+    {
+        $key=$quote['date'].($comparison?':comparison':':price');
+        $history[$key]=['quote'=>$quote,'comparison'=>$comparison];
+        uksort($history,static fn($a,$b)=>strcmp($b,$a));
+        return array_slice($history,0,self::HISTORY_LIMIT,true);
+    }
+    private static function recoveredUnits(array $i,array $quote,array $state,int $now):bool
+    {
+        return EuropeanActions::retainedCompatible($i,$state['europe']['actions']??[],$quote['previousDate'],$quote['date'],$now)
+            ||($i['provider']==='xetra'&&XetraReference::compatible($state['europe']['xetra']??[],$i['id'],$quote['date'],$quote['previousDate']));
+    }
     public static function reconcile(array $registry,array $snapshot,array $state,int $now):array
     {
         $earlier=[];$ids=array_fill_keys(array_column($registry,'id'),true);
@@ -93,34 +133,58 @@ final class LastValidMarket
             $record=$state['lastValidMarket'][$id]??[];
             if(($record['identity']??null)!==$fingerprint)$record=['identity'=>$fingerprint];
             $codes=array_column(array_filter($snapshot['issues'],static fn($v)=>$v['instrumentId']===$id),'code');
-            foreach(['price','comparison'] as $field)if(isset($record[$field])&&self::blocked($i,$record[$field],$state,$codes,$now)){
-                unset($record[$field]);$record['lastRejectedAt']=$now;$record['lastFailureCodes']=array_values(array_unique($codes));
-            }
             $candidateBlocked=self::blocked($i,$q,$state,$codes,$now);
             $invalid=$q['invalidations']??[];
             $incomplete=array_intersect($codes,['baseline_missing','baseline_fx_missing','history_price_missing','history_source_unavailable','history_baseline_missing','history_request_limit','history_invalid']);
             $softCheck=self::softComparisonFailure($i,$state)&&in_array('corporate_action_unverified',$codes,true)
                 ||$incomplete&&!in_array('history_basis_unverified',$codes,true);
             $hardInvalid=in_array('listing',$invalid,true)||array_intersect($invalid,['current','comparison'])&&!$softCheck;
-            // Known corrections/revocations must also discard the retained set.
-            if($candidateBlocked||$hardInvalid)$record=['identity'=>$fingerprint,'lastRejectedAt'=>$now,'lastFailureCodes'=>array_values(array_unique($codes))];
+            if($candidateBlocked||$hardInvalid){$record['lastRejectedAt']=$now;$record['lastFailureCodes']=array_values(array_unique($codes));}
+            $accepted=[];
+            foreach($record['history']??[] as $revision){
+                if(!is_array($revision)||!is_array($revision['quote']??null)||!is_bool($revision['comparison']??null))continue;
+                $saved=$revision['quote'];$comparison=$revision['comparison'];
+                if(self::valid($i,$saved,$now,$comparison))$accepted=self::remember($accepted,$saved,$comparison);
+            }
+            // Migrate the existing secondary record without inventing acceptance.
+            foreach(['price'=>false,'comparison'=>true] as $field=>$comparison)if(isset($record[$field])&&self::valid($i,$record[$field],$now,$comparison))
+                $accepted=self::remember($accepted,$record[$field],$comparison);
+            foreach($accepted as $key=>$revision)if(self::blocked($i,$revision['quote'],$state,$codes,$now)
+                ||($hardInvalid&&self::candidateAffects($i,$q,$revision['quote'],$state,$codes))){
+                unset($accepted[$key]);$record['lastRejectedAt']=$now;$record['lastFailureCodes']=array_values(array_unique($codes));
+            }
+            unset($record['price'],$record['comparison']);
+            foreach($accepted as $revision){
+                if(!isset($record['price']))$record['price']=$revision['quote'];
+                if($revision['comparison']&&!isset($record['comparison']))$record['comparison']=$revision['quote'];
+            }
             // Earlier versions could erase this secondary record after an
             // incomplete response. Recover from independently retained positive
             // history plus its accepted dated unit proof, without fetching.
-            if(!isset($record['comparison'])&&!$candidateBlocked&&!$hardInvalid&&in_array($i['provider'],['euronext','xetra'],true)){
-                $recovered=EuropeanHistory::retainedPair($i,$history,$now);
-                if($recovered!==null&&EuropeanActions::retainedCompatible($i,$state['europe']['actions']??[],$recovered['previousDate'],$recovered['date'],$now)
-                    &&!self::blocked($i,$recovered,$state,$codes,$now)&&self::valid($i,$recovered,$now,true))$record['comparison']=$recovered;
+            if(!isset($record['comparison'])&&in_array($i['provider'],['euronext','xetra'],true)){
+                $remaining=$history;
+                for($n=0;$n<12;$n++){
+                    $recovered=EuropeanHistory::retainedPair($i,$remaining,$now);
+                    if($recovered===null)break;
+                    if(self::recoveredUnits($i,$recovered,$state,$now)
+                        &&!($hardInvalid&&self::candidateAffects($i,$q,$recovered,$state,$codes))
+                        &&!self::blocked($i,$recovered,$state,$codes,$now)&&self::valid($i,$recovered,$now,true)){
+                        $record['comparison']=$recovered;$accepted=self::remember($accepted,$recovered,true);break;
+                    }
+                    // Try an older accepted interval without altering source
+                    // evidence or its retained correction markers in state.
+                    unset($remaining['retainedCloses'][$recovered['date']]);
+                }
             }
             $wasEarlier=isset($snapshot['earlierData'][$id]);
             $goodPrice=!$candidateBlocked&&!array_intersect($codes,['corporate_action_unverified','history_basis_unverified'])&&self::valid($i,$q,$now,false);
             $goodPair=$goodPrice&&self::valid($i,$q,$now,true);
             if(!$wasEarlier&&($q['sourceAvailable']??true)!==false){
-                if($goodPrice)$record['price']=$q;
+                if($goodPrice){$record['price']=$q;$accepted=self::remember($accepted,$q,$goodPair);}
                 if($goodPair)$record['comparison']=$q;
             }
             $saved=$record['comparison']??$record['price']??null;
-            if((!$goodPair||$wasEarlier)&&is_array($saved)&&!$candidateBlocked&&!$hardInvalid
+            if((!$goodPair||$wasEarlier)&&is_array($saved)&&!($hardInvalid&&self::candidateAffects($i,$q,$saved,$state,$codes))
                 &&!self::blocked($i,$saved,$state,$codes,$now)&&self::valid($i,$saved,$now,isset($record['comparison']))){
                 $q=$saved;$q['status']='stale';$q['sourceAvailable']=false;
                 $snapshot['quotes'][$id]=$q;$earlier[$id]=['date'=>$q['date'],'previousDate'=>$q['previousDate']??null];
@@ -135,6 +199,7 @@ final class LastValidMarket
                 if(($q['sourceAvailable']??true)===false||array_intersect($codes,['source_unavailable','history_source_unavailable','price_stale','fx_stale']))
                     $earlier[$id]=['date'=>$q['date'],'previousDate'=>$q['previousDate']];
             }
+            $record['history']=$accepted;
             $state['lastValidMarket'][$id]=$record;
         }
         $snapshot['earlierData']=$earlier;
