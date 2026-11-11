@@ -353,6 +353,7 @@ test('live Add keeps search, preparation and personal entry in separate cancella
       const eu2={...eu,id:'first-eu-two',name:'Fictional Awaiting Two'};
       try {
         clock=Date.parse('2026-10-13T08:01:00Z');catalogueItems=[eu,eu2];marketFixtureReceipts={};
+        marketFixtureIssues=[{instrumentId:eu.id,code:'source_unavailable'}];
         savedHoldings=catalogueItems.map(i=>({id:i.id+'-h',instrumentId:i.id,quantity:'2',averageCost:'80',eurCost:null}));
         const saved=JSON.stringify(savedHoldings),writes=calls.filter(c=>c.action==='portfolio'&&c.options.method==='PUT').length;
         quoteOverrides=Object.fromEntries(catalogueItems.map(i=>[i.id,{date:'2026-10-12',previousDate:'2026-10-09',observedAt:'2026-10-12T13:45:00Z',priceKind:'trade',status:'delayed'}]));
@@ -363,6 +364,8 @@ test('live Add keeps search, preparation and personal entry in separate cancella
         }
         const value=get('portfolio-value').textContent;
         assert.match(value,/€\s*408/,'Both accepted last-known values remain in the portfolio total');
+        assert.equal(get('summary-status').hidden,true,'An individual source outage stays with its waiting holding');
+        assert.equal(get('summary-status').textContent,'');
         const toggle={dataset:{id:eu.id+'-h'},closest(){return this;},classList:{contains:kind=>kind==='holding-toggle'}};
         get('holdings-list').emit('click',{target:toggle});
         const details=get('holdings-list').marketRows[0].render();
@@ -380,6 +383,13 @@ test('live Add keeps search, preparation and personal entry in separate cancella
         assert.match(get('awaiting-data-list').innerHTML,/Fictional Awaiting Two/);
         get('close-price-update').emit('click');assert.equal(document.activeElement.id,'price-update');
         assert.doesNotMatch(get('summary-change').innerHTML,/show-coverage/,'A normal first-price wait alone is not a data failure');
+        handleMarket=()=>{throw new Error('Offline');};clock+=5000;foreground();await runTimers(100);
+        assert.equal(get('summary-status').hidden,false,'A failed portfolio-wide cache read still warns');
+        assert.match(get('summary-status').textContent,/Market data could not be refreshed/);
+        assert.equal(get('portfolio-value').textContent,value);
+        handleMarket=()=>catalogue(catalogueItems).market;clock+=5000;foreground();await runTimers(100);
+        assert.equal(get('summary-status').hidden,true,'Successful cache reads clear the global warning despite the holding source outage');
+        marketFixtureIssues=[];
         quoteOverrides[eu.id]={date:'2026-10-13',previousDate:null,previousClose:null,observedAt:'2026-10-13T07:45:00Z',priceKind:'trade',status:'delayed'};
         get('reload-portfolio').emit('click');await settle();
         assert.match(get('summary-change').innerHTML,/Waiting for comparison data/,'a received price must not be described as a missing first update');
@@ -404,7 +414,7 @@ test('live Add keeps search, preparation and personal entry in separate cancella
         assert.equal(calls.filter(c=>c.action==='portfolio'&&c.options.method==='PUT').length,writes);
         savedHoldings=[];get('reload-portfolio').emit('click');await settle();
         assert.equal(get('holdings-footer').hidden,true);assert.equal(get('price-update').hidden,true);
-      } finally {clock=priorClock;marketFixtureReceipts={};quoteOverrides={};savedHoldings=[];catalogueItems=[old];get('reload-portfolio').emit('click');await settle();}
+      } finally {clock=priorClock;marketFixtureIssues=[];marketFixtureReceipts={};quoteOverrides={};savedHoldings=[];catalogueItems=[old];handleMarket=()=>catalogue(catalogueItems).market;get('reload-portfolio').emit('click');await settle();}
     });
     await t.test('an open holding without any accepted price shows waiting status and unavailable value in accessible details',async()=>{
       const priorClock=clock;
@@ -422,6 +432,8 @@ test('live Add keeps search, preparation and personal entry in separate cancella
         const row=get('holdings-list').marketRows[0];assert.equal(row.hidden,false);
         assert.equal(row.querySelector('.row-change').innerHTML,'<span class="awaiting-label">Awaiting today’s update</span>');
         assert.equal(get('portfolio-value').textContent,'—','No complete total is invented without any accepted value');
+        assert.equal(get('summary-status').hidden,false);
+        assert.match(get('summary-status').textContent,/Some investments cannot be valued/);
         const requests=calls.length;
         const toggle={dataset:{id:missing.id+'-h'},closest(){return this;},classList:{contains:kind=>kind==='holding-toggle'}};
         get('holdings-list').emit('click',{target:toggle});

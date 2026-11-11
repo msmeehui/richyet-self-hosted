@@ -668,7 +668,7 @@ function renderSummary(total,entries,now=Date.now()) {
     if (!total.completeValue) status = `Some investments cannot be valued. ${status}`.trim();
     const freshness = holdings.map(h => {const {instrument,quote} = entry(h); return holdingFreshness(instrument,quote,heldIssues);});
     if (!sincePurchase && !comparisonCoverage.length && freshness.some(item => item.updateIncomplete)) status += `${status ? ' ' : ''}Some price updates are incomplete.`;
-    if (!sincePurchase && !comparisonCoverage.length && (marketFailed || heldIssues.some(issue => issue.code === 'source_unavailable'))) status += `${status ? ' ' : ''}Market data could not be refreshed. Displayed amounts use the last available observations.`;
+    if (!sincePurchase && !comparisonCoverage.length && marketFailed) status += `${status ? ' ' : ''}Market data could not be refreshed. Displayed amounts use the last available observations.`;
   }
   $('summary-status').textContent = status;
   $('summary-status').hidden = !status;
