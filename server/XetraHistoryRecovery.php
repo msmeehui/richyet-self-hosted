@@ -22,6 +22,66 @@ final class XetraHistoryRecovery
             &&!array_key_exists('rejections',$session);
     }
 
+    /** A valid current trade may use an independently confirmed previous close.
+     * This excuses only the previous session's opaque flag, never its trades or
+     * a warning on the current session. Retention keeps its original timestamps. */
+    public static function allowsTradeBaseline(array $i,array $q,array $history,array $xetra,array $actions,int $now,bool $retained=false):bool
+    {
+        if(($i['provider']??null)!=='xetra'||($i['providerConfig']['identityConfirmed']??false)!==true
+            ||($i['providerConfig']['historyProvider']??null)!=='newton'
+            ||($q['source']??null)!=='Xetra delayed trades; Newton Analytics previous close'
+            ||($q['listingId']??null)!==($i['id']??null)||($q['mic']??null)!==($i['mic']??null)
+            ||($q['isin']??$i['isin']??null)!==($i['isin']??null)
+            ||($i['currency']??null)!=='EUR'||($q['currency']??null)!=='EUR'
+            ||($q['fx']??null)!=='1'||($q['previousFx']??null)!=='1'
+            ||($q['priceKind']??null)!=='trade'||($q['previousKind']??null)!=='close'
+            ||($q['previousObservedAt']??null)!==null||($q['basis']??null)!=='same_units'
+            ||($q['invalidations']??null)!==[]||isset($q['eligibilityIssue'])
+            ||!in_array($q['status']??null,['delayed','stale'],true)
+            ||!MarketJson::date($q['date']??null)||!MarketJson::date($q['previousDate']??null))return false;
+        $date=$q['date'];$previous=$q['previousDate'];$id=$i['id'];$at=MarketJson::instant($q['observedAt']??null);
+        if($at===null||$at>$now||(new \DateTimeImmutable('@'.$at))->setTimezone(new \DateTimeZone($i['timeZone']))->format('Y-m-d')!==$date
+            ||EuropeanHistory::previousSession($i['mic'],$date)!==$previous||($q['expectedPreviousDate']??null)!==$previous)return false;
+        $current=$xetra['sessions'][$id][$date]??[];$baseline=$xetra['sessions'][$id][$previous]??[];
+        if(($current['invalid']??true)!==false||($current['hardInvalid']??false)===true
+            ||($current['formatUnavailable']??false)===true||($current['capacityExceeded']??false)===true
+            ||!self::opaqueSession($baseline)||isset($xetra['referenceRevoked'][$id])||($history['identityRevoked']??false)===true
+            ||XetraReference::oldBasisUnsafe($xetra,$id,$previous,$now)
+            ||EuropeanActions::oldBasisUnsafe($actions,$id,$previous,$now))return false;
+        try{
+            if(($history['fingerprint']??null)!==EuropeanHistory::fingerprint($i))return false;
+            $close=EuropeanHistory::retainedClose($i,$history,$previous,$now);
+        }catch(\Throwable){return false;}
+        if($close===null||$close['evidenceKind']!=='newton-response'||$close['close']!==($q['previousClose']??null))return false;
+        foreach(['close','adjustedClose'] as $field){
+            $value=MarketJson::decimal($history['rows'][$previous][$field]??null);
+            if($value!==null&&$value!==$close[$field])return false;
+        }
+        foreach($xetra['referenceActions'][$id]??[] as $day=>$_)if($day>$previous&&$day<=$date)return false;
+        foreach($actions[$id]['events']??[] as $day=>$_)if($day>$previous&&$day<=$date)return false;
+        $timeKey=static function(string $time):string{
+            $parts=explode('.',rtrim($time,'Z'),2);return $parts[0].'.'.str_pad($parts[1]??'',9,'0');
+        };
+        $observedKey=$timeKey($q['observedAt']);$matched=false;$newer=false;
+        foreach($current['trades']??[] as $trade){
+            if(!is_string($trade['time']??null)||MarketJson::instant($trade['time'])===null
+                ||MarketJson::decimal($trade['price']??null)===null)return false;
+            $key=$timeKey($trade['time']);
+            if($key===$observedKey){
+                if(!XetraReference::samePrice($trade['price'],$q['price']??''))return false;
+                $matched=true;
+            }
+            if(strcmp($key,$observedKey)>0)$newer=true;
+        }
+        if(!$retained){
+            if(($q['status']??null)!=='delayed'||($q['sourceAvailable']??null)!==true
+                ||!is_int($q['freshUntil']??null)||$q['freshUntil']<=$now||$q['freshUntil']>$at+5400
+                ||($xetra['catchupPending']??false)||($xetra['retentionGap']??false)||($xetra['archiveUncertain']??false))return false;
+            if(!$matched||$newer)return false;
+        }
+        return self::referenceProof($i,$q,$xetra)||self::actionProof($i,$q,$actions,$now,$retained);
+    }
+
     private static function evidence(array $i,array $q,array $history,array $xetra,array $actions,int $now,bool $retained):bool
     {
         if(($i['provider']??null)!=='xetra'||($i['providerConfig']['historyProvider']??null)!=='newton'

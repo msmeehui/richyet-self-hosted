@@ -69,8 +69,10 @@ final class LastValidMarket
         if($i['provider']==='xetra'){
             if(XetraReference::oldBasisUnsafe($state['europe']['xetra']??[],$id,$date,$now))return true;
             $independent=XetraHistoryRecovery::allows($i,$q,$history,$state['europe']['xetra']??[],$state['europe']['actions']??[],$now,$retained);
+            $independentBaseline=XetraHistoryRecovery::allowsTradeBaseline($i,$q,$history,$state['europe']['xetra']??[],$state['europe']['actions']??[],$now,$retained);
             foreach([$q['date']??null,$q['previousDate']??null] as $d)
-                if($d!==null&&($state['europe']['xetra']['sessions'][$id][$d]['invalid']??false)===true&&!$independent)return true;
+                if($d!==null&&($state['europe']['xetra']['sessions'][$id][$d]['invalid']??false)===true
+                    &&!$independent&&!($d===($q['previousDate']??null)&&$independentBaseline))return true;
         }
         if($i['provider']==='euronext'){
             $route=$state['europe']['euronext'][$i['providerConfig']['tradingSchedule']??'']??[];
@@ -139,7 +141,8 @@ final class LastValidMarket
             // Cache-only reads can encounter a new veto beside an older saved
             // independent quote. Do not leave that rejected candidate visible
             // merely because the provider selector is not running on this read.
-            if($candidateBlocked&&$i['provider']==='xetra'&&($q['source']??null)==='Newton Analytics daily close'){
+            if($candidateBlocked&&$i['provider']==='xetra'&&in_array($q['source']??null,
+                ['Newton Analytics daily close','Xetra delayed trades; Newton Analytics previous close'],true)){
                 foreach([$q['date']??null,$q['previousDate']??null] as $day)if($day!==null
                     &&($state['europe']['xetra']['sessions'][$id][$day]['invalid']??false)===true){
                     $q=array_replace($q,['price'=>null,'previousClose'=>null,'status'=>'missing']);

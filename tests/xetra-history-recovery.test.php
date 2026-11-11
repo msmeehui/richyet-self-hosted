@@ -193,4 +193,77 @@ check($db->query('SELECT snapshot_json,state_json FROM market_accounts')->fetch(
 $s=$warm['state'];$s['europe']['xetra']=$r;$store->saveRefresh(1,$warm['snapshot'],$s,$now);
 $read=$store->market(1);$quotes=(array)$read['quotes'];
 check($quotes[$id]['price']==='95'&&isset($read['earlierData'][$id]),'Actual cache-only read falls back to an unaffected older pair');
+// Next-session regression: the prior trade warning does not discredit an
+// independently received close used beside today's accepted trade.
+$dayNow=strtotime('2026-11-11T10:05:00Z');$dayX=$x;
+$dayX['references']['2026-11-11']=$dayX['references']['2026-11-10'];
+$dayX['references']['2026-11-11']['date']='2026-11-11';$dayX['references']['2026-11-11']['retrievedAt']=$dayNow-60;
+record($dayX,$i,['price'=>'108','tradingDateAndTime'=>'2026-11-11T10:00:00Z',
+    'publicationDateAndTime'=>'2026-11-11T10:00:01Z','transactionIdentificationCode'=>'next-day-trade'],$dayNow);
+$dayX=E::compactXetraState($dayX);
+$dayDirect=E::xetraQuote($dayX['sessions'][$id],$dayNow,false,$dayX,$id);
+$dayQuote=E::withHistory($i,$dayDirect,null,$history,[],'noRequests',$dayNow,$dayX)['quote'];
+check($dayQuote['price']==='108'&&$dayQuote['previousClose']==='105'&&$dayQuote['date']==='2026-11-11','Current trade joins its independently confirmed previous close');
+check(R::allowsTradeBaseline($i,$dayQuote,$history,$dayX,[],$dayNow),'Only the opaque previous-session warning is excused');
+$dayState=$cold['state'];$dayState['europe']['xetra']=$dayX;
+$day=L::reconcile([$i],snap($i,$dayQuote),$dayState,$dayNow);
+check($day['snapshot']['quotes'][$id]===$dayQuote&&$day['snapshot']['earlierData']===[],'Daytime comparison replaces yesterday pair instead of reverting to it');
+check($day['state']['europe']===$dayState['europe'],'Daytime recovery preserves original feed and history evidence');
+M::validateSnapshot($day['snapshot'],[$i]);check(true,'Daytime result uses the existing public schema');
+$dayFaults=['current-warning','current-correction','previous-correction','diagnosed-previous','wrong-price','wrong-time','wrong-baseline',
+    'missing-proof','imported-proof','unconfirmed-history','history-revision','history-conflict','wrong-listing','wrong-currency','wrong-source',
+    'wrong-date','wrong-previous-date','invalidated','incomplete-download','retention-gap','archive-uncertain','unsupported-format',
+    'expired','future-time','missing-reference','reference-action','known-action','same-time-conflict','newer-trade','null-previous-fx'];
+foreach($dayFaults as $fault){
+    $j=$i;$v=$dayQuote;$h=$history;$r=$dayX;$a=[];
+    switch($fault){
+        case 'current-warning':$r['sessions'][$id]['2026-11-11']['invalid']=true;break;
+        case 'current-correction':$r['sessions'][$id]['2026-11-11']['hardInvalid']=true;break;
+        case 'previous-correction':$r['sessions'][$id]['2026-11-10']['hardInvalid']=true;break;
+        case 'diagnosed-previous':$r['sessions'][$id]['2026-11-10']['rejections']=['count'=>1];break;
+        case 'wrong-price':$v['price']='109';break;
+        case 'wrong-time':$v['observedAt']='2026-11-11T10:00:02Z';break;
+        case 'wrong-baseline':$v['previousClose']='104';break;
+        case 'missing-proof':unset($h['retainedCloses']['2026-11-10']);break;
+        case 'imported-proof':$h['retainedCloses']['2026-11-10']['evidenceKind']='saved-production-state';break;
+        case 'unconfirmed-history':$j['providerConfig']['historyIdentityConfirmed']=false;break;
+        case 'history-revision':$h['rows']['2026-11-10']['close']='104';break;
+        case 'history-conflict':$h['retainedInvalidDates']['2026-11-10']=$dayNow;break;
+        case 'wrong-listing':$v['listingId']='other';break;
+        case 'wrong-currency':$v['currency']='USD';break;
+        case 'wrong-source':$v['source']='Newton Analytics daily close';break;
+        case 'wrong-date':$v['date']='2026-11-12';break;
+        case 'wrong-previous-date':$v['previousDate']='2026-11-09';break;
+        case 'invalidated':$v['invalidations']=['comparison'];break;
+        case 'incomplete-download':$r['catchupPending']=true;$v['eligibilityIssue']='incomplete_trade_collection';break;
+        case 'retention-gap':$r['retentionGap']=true;break;
+        case 'archive-uncertain':$r['archiveUncertain']=true;break;
+        case 'unsupported-format':$r['sessions'][$id]['2026-11-11']['formatUnavailable']=true;break;
+        case 'expired':$v['freshUntil']=$dayNow;break;
+        case 'future-time':$v['observedAt']='2026-11-11T10:06:00Z';break;
+        case 'missing-reference':unset($r['references']['2026-11-11']);break;
+        case 'reference-action':$r['referenceActions'][$id]['2026-11-11']=true;break;
+        case 'known-action':$a[$id]=['events'=>['2026-11-11'=>true],'timeZone'=>'Europe/Berlin'];break;
+        case 'same-time-conflict':$r['sessions'][$id]['2026-11-11']['trades'][]=['time'=>'2026-11-11T10:00:00.000000000Z','price'=>'109','mode'=>'unknown'];break;
+        case 'newer-trade':$r['sessions'][$id]['2026-11-11']['trades'][]=['time'=>'2026-11-11T10:01:00Z','price'=>'109','mode'=>'unknown'];break;
+        case 'null-previous-fx':$v['previousFx']=null;break;
+    }
+    check(!R::allowsTradeBaseline($j,$v,$h,$r,$a,$dayNow),'Daytime admission refuses '.$fault);
+}
+$dayStore=new M($db,'fixture@example.invalid',$dayNow);
+$dayStore->saveRefresh(1,$day['snapshot'],$day['state'],$dayNow);
+$read=$dayStore->market(1);$quotes=(array)$read['quotes'];
+check($quotes[$id]===$dayQuote&&$read['earlierData']===[],'Saved daytime comparison survives actual cache-only read');
+foreach(['current','previous','conflicting-timestamp'] as $which){
+    $s=$day['state'];$date=$which==='current'?'2026-11-11':'2026-11-10';
+    if($which==='conflicting-timestamp')$s['europe']['xetra']['sessions'][$id]['2026-11-11']['trades'][]=['time'=>'2026-11-11T10:00:00.000000000Z','price'=>'109','mode'=>'unknown'];
+    else{$s['europe']['xetra']['sessions'][$id][$date]['invalid']=true;$s['europe']['xetra']['sessions'][$id][$date]['hardInvalid']=true;}
+    $dayStore->saveRefresh(1,$day['snapshot'],$s,$dayNow);
+    $before=$db->query('SELECT snapshot_json,state_json FROM market_accounts')->fetch();$read=$dayStore->market(1);$quotes=(array)$read['quotes'];
+    check($quotes[$id]['price']!=='108','Cache read withdraws admitted daytime result after '.$which.' correction');
+    check($db->query('SELECT snapshot_json,state_json FROM market_accounts')->fetch()===$before,'Correction read preserves persisted evidence for '.$which);
+}
+$failed=array_replace($dayQuote,['price'=>null,'previousClose'=>null,'status'=>'missing','issues'=>['source_unavailable']]);
+$retained=L::reconcile([$i],snap($i,$failed),$day['state'],$dayNow+600);
+check($retained['snapshot']['quotes'][$id]===array_replace($dayQuote,['status'=>'stale','sourceAvailable'=>false]),'Ordinary later failure keeps the accepted daytime tuple explicitly stale');
 echo "Xetra history recovery checks passed: $checks\n";
