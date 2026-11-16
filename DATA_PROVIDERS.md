@@ -11,7 +11,7 @@ RichYet’s code is free. Your installation needs its own data access and existi
 | Euronext | Delayed prices for reviewed Amsterdam/Paris/Brussels listings | Public exchange files; no key for those files. Exact listing and schedule mappings are still required. |
 | Newton Analytics | European previous closing prices | Public historical endpoint, no key. Availability and exact listing coverage can vary. |
 | EODHD | Additional split checks for European comparisons | Your own key. This is not the source of the European quoted price. |
-| Deutsche Börse/Xetra | Delayed trades and instrument reference data | Public files, no key; not included in the starter catalogue. Initial history/correction coverage can take time. |
+| Deutsche Börse/Xetra | Delayed trades and instrument reference data | Public files and trade viewer, no key; not included in the starter catalogue. Initial history/correction coverage can take time. |
 | ECB | Daily reporting rates for EUR/USD/GBP portfolio totals | Public reference rates; no key. This is separate from the historical EUR/USD rate needed for a US daily comparison. |
 | Brand New Day | Selected, specifically reviewed daily-valued funds | Optional adapter, not in the starter catalogue. Exact fund/share-class and usage permission need review. |
 
@@ -98,3 +98,12 @@ The normal job runs every ten minutes; adapters generally target hourly checks, 
 A broad search catalogue does not mean a large portfolio is sustainable on these free limits. Keep the first installation small. Missing data, delayed publication, historical gaps and download backlogs remain possible. RichYet retains compatible earlier figures and their original dates; it never invents a price, substitutes another exchange or resets quotas to make a check pass.
 
 Calendar maintenance is part of self-hosting. The package has reviewed Xetra/NYSE 2027 coverage and bounded US session-calendar data. Euronext 2027 coverage is still pending official publication/review; do not describe it as fully supported yet.
+
+When Xetra file collection is incomplete, the official free trade viewer can
+provide an independent per-listing publication window. The collector reads every
+page from the preceding business day through a conservative 20-minute delayed
+cutoff before admitting a current-session trade. Later polls resume with an
+overlap. Unfinished pages, invalid records and ambiguous continuation boundaries
+remain unavailable. Viewer evidence is separate because its timestamps have
+lower precision; neither missing-file evidence nor known correction, identity
+or unit-basis vetoes are cleared. The existing previous-close checks still apply.

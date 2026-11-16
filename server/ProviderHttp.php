@@ -65,6 +65,7 @@ final class ProviderHttp
         }
         if ($host==='eodhd.com' && preg_match('~^/api/exchange-symbol-list/(?:AS|PA|BR|XETRA)$~D',$path) && ($u['query']??null)==='fmt=json') return 'eodhd';
         if ($host==='robotapi-a4cjfeaygwg3cke0.westeurope-01.azurewebsites.net' && preg_match('~^/v1/(?:fund/[0-9]{1,6}/factsheetdata|fundrates)$~D',$path)) return 'european';
+        if ($host==='mvs.deutsche-boerse.com' && self::xetraViewRequest($url) !== null) return 'european';
         if ($host==='mfs.deutsche-boerse.com' && preg_match('~^/api/(?:DETR-posttrade|download/DETR-posttrade-(?:daily-\d{4}-\d{2}-\d{2}|\d{4}-\d{2}-\d{2}T\d{2}_\d{2})\.json\.gz)$~D',$path)) return 'european';
         if ($host==='www.cashmarket.deutsche-boerse.com' && !isset($u['query']) && ($path==='/cash-en/trading/Tradable-Instruments-Xetra/xetra/3884!search'
             || preg_match('~^/resource/blob/1528/[a-f0-9]{32}/data/t7-xetr-allTradableInstruments\.csv$~D',$path))) return 'european';
@@ -81,6 +82,14 @@ final class ProviderHttp
             '/data-reporting-service/trades-file/download/ETFS_FUNDS/SINCE_PREVIOUS_TRADING_DAY/PAR'],true)) return 'european';
         throw new \RuntimeException('Provider URL refused.');
     }
+    /** Internal GET-shaped address for the view service's read-only search.
+     * Only this exact query becomes a POST; no arbitrary body, host or key. */
+    public static function xetraViewRequest(string $url):?array
+    {
+        if (!preg_match('~^https://mvs\.deutsche-boerse\.com/api\?sourceOfData=DETR&exchangeType=posttrade&isin=([A-Z]{2}[A-Z0-9]{9}[0-9])&start=([0-9]{13})&end=([0-9]{13})$~D', $url, $m)
+            || $m[2] > $m[3] || (int)$m[3] - (int)$m[2] > 7 * 86400000) return null;
+        return ['sourceOfData'=>'DETR','exchangeType'=>'posttrade','isin'=>$m[1],'start'=>$m[2],'end'=>$m[3]];
+    }
     public static function xetraRedirect(string $original,string $location):bool
     {
         $a=parse_url($original);$b=parse_url($location);
@@ -92,7 +101,7 @@ final class ProviderHttp
     }
     public function get(string $url,int $maxBytes=8388608):string
     {
-        $provider=self::provider($url);$original=$url;
+        $provider=self::provider($url);$original=$url;$view=self::xetraViewRequest($url);
         if($provider==='eodhd'&&(!is_string($this->keys['EODHD_API_KEY']??null)||$this->keys['EODHD_API_KEY']===''))throw new \RuntimeException('Action source is not configured.');
         if(!function_exists('curl_init')||$maxBytes<1||$maxBytes>33554432)throw new \RuntimeException('Provider request unavailable.');
         for($hop=0;$hop<2;$hop++){
@@ -110,6 +119,12 @@ final class ProviderHttp
             if($provider==='alpaca'){$headers[]='APCA-API-KEY-ID: '.$this->keys['ALPACA_API_KEY_ID'];$headers[]='APCA-API-SECRET-KEY: '.$this->keys['ALPACA_API_SECRET_KEY'];}
             if($provider==='tickerlayer')$headers[]='x-api-key: '.$this->keys['TICKERLAYER_API_KEY'];
             $requestUrl=$url;
+            if($view!==null){
+                $requestUrl='https://mvs.deutsche-boerse.com/api';
+                $headers[]='Content-Type: application/json';
+                $headers[]='Origin: https://mvs.deutsche-boerse.com';
+                $headers[]='Referer: https://mvs.deutsche-boerse.com/';
+            }
             if($provider==='eodhd'){
                 $key=$this->keys['EODHD_API_KEY']??null;if(!is_string($key)||$key==='')throw new \RuntimeException('Action source is not configured.');
                 $requestUrl.='&api_token='.rawurlencode($key);
@@ -119,6 +134,7 @@ final class ProviderHttp
             curl_setopt_array($curl,[CURLOPT_HTTPHEADER=>$headers,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_MAXREDIRS=>0,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_REDIR_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_PROXY=>'',CURLOPT_NETRC=>CURL_NETRC_IGNORED,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_TIMEOUT=>min(15,(int)$remainingTime),CURLOPT_HEADER=>false,CURLOPT_RETURNTRANSFER=>false,
                 CURLOPT_HEADERFUNCTION=>static function($curl,string $header)use(&$location,&$retryAfter):int{if(stripos($header,'Location:')===0)$location=trim(substr($header,9));if(stripos($header,'Retry-After:')===0){$v=trim(substr($header,12));$retryAfter=preg_match('/^[0-9]{1,8}$/D',$v)?min(86400,(int)$v):86400;}return strlen($header);},
                 CURLOPT_WRITEFUNCTION=>static function($curl,string $chunk)use(&$body,&$overflow,$limit):int{if(strlen($body)+strlen($chunk)>$limit){$overflow=true;return 0;}$body.=$chunk;return strlen($chunk);}]);
+            if($view!==null)curl_setopt_array($curl,[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode($view,JSON_THROW_ON_ERROR)]);
             $ok=curl_exec($curl);$status=curl_getinfo($curl,CURLINFO_RESPONSE_CODE);$transportCode=curl_errno($curl);unset($curl);$this->bytes+=strlen($body);$this->statuses[$provider.':'.(string)$status]=($this->statuses[$provider.':'.(string)$status]??0)+1;
             if($overflow)throw new \RuntimeException('Provider request unavailable.');
             if($ok===false)throw new ProviderHttpTransport($transportCode);

@@ -323,7 +323,7 @@ final class EuropeanProviders
             $changed=false;
             foreach($members as $id=>$identity)if(($state['members'][$id]??null)!==$identity){
                 $changed=true;
-                foreach(['sessions','reviewedPairs','referenceIdentity','referenceRevoked','referenceActions'] as $field)unset($state[$field][$id]);
+                foreach(['sessions','views','reviewedPairs','referenceIdentity','referenceRevoked','referenceActions'] as $field)unset($state[$field][$id]);
                 foreach($state['references']??[] as $date=>$_)unset($state['references'][$date]['rows'][$id]);
             }
             if($changed){$state['cursor']=null;unset($state['lastDailyCheckedAt'],$state['referenceAttemptAt']);}
@@ -512,20 +512,140 @@ final class EuropeanProviders
         $collection['archiveUncertain'] = ($state['archiveUncertain'] ?? false) === true;
         $collection['elapsedMilliseconds'] = max(0, (int) round((microtime(true) - $began) * 1000));
         $state['collection'] = $collection;
+        $viewQuotes = ($failed || $catchup || ($state['retentionGap'] ?? false) || ($state['archiveUncertain'] ?? false))
+            ? self::xetraViewRefresh($valid, $state, $get, $now) : [];
         foreach ($valid as $instrument) {
             $id = $instrument['id'];
             // On total retrieval failure omit an unseen quote; core may retain
             // an older snapshot as stale. Explicit invalidation remains explicit.
-            if (!isset($state['sessions'][$id]) && $failed) {
+            if (!isset($state['sessions'][$id]) && !isset($viewQuotes[$id]) && $failed) {
                 $issues[] = ['instrumentId' => $id, 'code' => 'source_unavailable'];
                 continue;
             }
-            $quote = self::xetraQuote($state['sessions'][$id] ?? [], $now, $failed || $catchup || ($state['retentionGap'] ?? false) || ($state['archiveUncertain'] ?? false), $state, $id);
+            $quote = $viewQuotes[$id] ?? self::xetraQuote($state['sessions'][$id] ?? [], $now, $failed || $catchup || ($state['retentionGap'] ?? false) || ($state['archiveUncertain'] ?? false), $state, $id);
             $quotes[$id] = $quote;
             foreach ($quote['issues'] as $code) $issues[] = ['instrumentId' => $id, 'code' => $code];
-            if ($failed || ($state['referenceFailed'] ?? false)) $issues[] = ['instrumentId' => $id, 'code' => 'source_unavailable'];
+            if (($failed && !isset($viewQuotes[$id])) || ($state['referenceFailed'] ?? false)) $issues[] = ['instrumentId' => $id, 'code' => 'source_unavailable'];
         }
         return ['quotes' => $quotes, 'state' => $state, 'issues' => $issues];
+    }
+
+    /** The official view service searches publications for one ISIN. Its
+     * microsecond timestamps must never enter the file service's nanosecond
+     * transaction ledger. Complete pagination is a separate coverage proof;
+     * it does not repair or advance the shared file cursor. */
+    private static function xetraViewRefresh(array $instruments, array &$state, callable $get, int $now): array
+    {
+        $quotes = []; $pages = 0; $began = microtime(true);
+        $cutoff = (intdiv($now - 1200, 60) * 60) * 1000 - 1;
+        foreach ($instruments as $i) {
+            $id = $i['id']; $context = EuropeanHistory::sessionContext($i['mic'], $now);
+            // Only the advertised current/previous business-day window can be
+            // bootstrapped. No weekend or unavailable older archive is inferred.
+            if ($context === null || !$context['isSession']) continue;
+            $previous = EuropeanHistory::previousSession($i['mic'], $context['date']);
+            if ($previous === null) continue;
+            $floor = strtotime($previous . 'T00:00:00Z') * 1000;
+            if ($cutoff < strtotime($context['date'] . 'T00:00:00Z') * 1000) continue;
+            $identity = hash('sha256', json_encode([$i['isin'], $i['currency'], $i['mic'], $i['providerConfig']], JSON_THROW_ON_ERROR));
+            $view = $state['views'][$id] ?? [];
+            if (($view['identity'] ?? null) !== $identity) $view = ['identity'=>$identity, 'sessions'=>[]];
+            // A gap older than the retained publication window starts a new
+            // coverage proof. Date-local vetoes survive in the shared ledger.
+            if (!is_int($view['next'] ?? null) || $view['next'] < $floor || $view['next'] > $cutoff) {
+                $view = ['identity'=>$identity, 'sessions'=>[], 'from'=>$floor, 'next'=>$floor, 'end'=>$cutoff];
+            }
+            if (($view['complete'] ?? false) === true) {
+                $view['next'] = max($floor, $view['through'] - 60000);
+                $view['end'] = $cutoff;
+            }
+            $view['complete'] = false;
+            $view['attemptedAt'] = $now; $view['outcome'] = 'incomplete';
+            try {
+                while ($pages < 60 && microtime(true) - $began < 45) {
+                    $start = $view['next']; $end = $view['end'];
+                    $url = 'https://mvs.deutsche-boerse.com/api?' . http_build_query([
+                        'sourceOfData'=>'DETR','exchangeType'=>'posttrade','isin'=>$i['isin'],
+                        'start'=>(string)$start,'end'=>(string)$end]);
+                    $pages++;
+                    $raw = $get($url, 1048576);
+                    if (!str_starts_with(ltrim($raw), '[')) throw new \RuntimeException('Expected view report array.');
+                    $rows = self::json($raw);
+                    if (!array_is_list($rows) || count($rows) > 1001) throw new \RuntimeException('Invalid view page.');
+                    $token = null;
+                    if (isset($rows[0]['continue'])) {
+                        $meta = array_shift($rows);
+                        if (array_keys($meta) !== ['continue'] || !is_string($meta['continue'])
+                            || !preg_match('/^[0-9]{13}$/D', $meta['continue'])) throw new \RuntimeException('Invalid view continuation.');
+                        $token = (int)$meta['continue'];
+                    }
+                    if (count($rows) > 1000 || ($token !== null && !$rows)) throw new \RuntimeException('Invalid view page.');
+                    $working = $view; $last = null;
+                    foreach ($rows as $line=>$row) {
+                        if (!is_array($row) || ($row['instrumentIdentificationCode'] ?? null) !== $i['isin']
+                            || !is_string($row['publicationDateAndTime'] ?? null)
+                            || self::instant($row['publicationDateAndTime']) === null) throw new \RuntimeException('Invalid view report.');
+                        $key = self::timeKey($row['publicationDateAndTime']);
+                        // PHP parses microseconds only. Parse the nine-digit
+                        // field ourselves below; do not silently round it.
+                        $millis = self::instant($row['publicationDateAndTime']) * 1000 + (int)substr(explode('.', $key)[1], 0, 3);
+                        $bound = gmdate('Y-m-d\TH:i:s', intdiv($end,1000)) . '.' . str_pad((string)($end % 1000),3,'0',STR_PAD_LEFT) . '000000';
+                        if ($millis < $start || strcmp($key,$bound) > 0 || ($last !== null && strcmp($key,$last) < 0)) throw new \RuntimeException('View publication outside coverage.');
+                        $last = $key;
+                        self::xetraRecord($working, $i, $row, $now, 'view:' . $start . ':' . $end, $line + 1);
+                    }
+                    if ($token !== null) {
+                        // Overlap the final millisecond: a token rounded upward
+                        // must not skip another report at that boundary. The
+                        // existing transaction ledger deduplicates exact trades
+                        // while corrections are always processed first.
+                        $next = $token - 1;
+                        if ($last === null || $next <= $start || $next > $end || !in_array($next, [$millis, $millis - 1], true)) throw new \RuntimeException('View continuation does not advance.');
+                        $working['next'] = $next;
+                    } else {
+                        $working['through'] = $end; $working['next'] = $end;
+                        $working['complete'] = true; $working['outcome'] = 'complete';
+                    }
+                    self::trimSessions($working); self::packTransactionEvidence($working);
+                    $view = $working;
+                    if ($token === null) break;
+                }
+            } catch (\Throwable $error) {
+                $view['outcome'] = 'source_failure';
+                $view['httpStatus'] = $error instanceof ProviderHttpStatus ? $error->status : null;
+            }
+            // Every veto is binding across delivery paths. Share only negative
+            // evidence, never differently rounded transaction fingerprints.
+            foreach ($view['sessions'][$id] ?? [] as $date=>$session) {
+                foreach (['invalid','hardInvalid','formatUnavailable','capacityExceeded'] as $flag) {
+                    if (($session[$flag] ?? false) === true) $state['sessions'][$id][$date][$flag] = true;
+                    if (($state['sessions'][$id][$date][$flag] ?? false) === true) $view['sessions'][$id][$date][$flag] = true;
+                }
+                if (isset($session['rejections'])) {
+                    $prior = $state['sessions'][$id][$date]['rejections'] ?? [];
+                    $state['sessions'][$id][$date]['rejections'] = ['count'=>max($prior['count'] ?? 0, $session['rejections']['count']),
+                        'first'=>$prior['first'] ?? $session['rejections']['first'], 'last'=>$session['rejections']['last']];
+                }
+            }
+            $others = $state['views'] ?? []; unset($others[$id]);
+            $view = self::boundedXetraView($view, $others);
+            $state['views'][$id] = $view;
+            if (($view['complete'] ?? false) !== true || ($view['from'] ?? PHP_INT_MAX) > $floor
+                || ($view['through'] ?? 0) < $cutoff) continue;
+            $quote = self::xetraQuote($view['sessions'][$id] ?? [], $now, false, $state, $id);
+            if (($quote['date'] ?? null) === $context['date'] && ($quote['price'] ?? null) !== null) $quotes[$id] = $quote;
+        }
+        return $quotes;
+    }
+
+    /** Apply the same shared bound during collection and singleton merging. */
+    public static function boundedXetraView(array $view, array $others): array
+    {
+        if (strlen(json_encode($others, JSON_THROW_ON_ERROR)) + strlen(json_encode($view, JSON_THROW_ON_ERROR)) > 2097152) {
+            foreach ($view['sessions'] ?? [] as $id=>$sessions) foreach ($sessions as $date=>$_) self::discardCapacityEvidence($view['sessions'][$id][$date]);
+            $view['complete'] = false; $view['outcome'] = 'evidence_limit';
+        }
+        return $view;
     }
 
     /** Safe filenames only; daily bootstrap then bounded chronological minute catch-up. */

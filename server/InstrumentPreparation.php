@@ -255,8 +255,8 @@ final class InstrumentPreparation
             }
             if($instrument['provider']==='xetra'){
                 $xetra=$eu['xetra']??[];
-                foreach(['members','sessions','reviewedPairs','referenceIdentity','referenceRevoked','referenceActions'] as $field)if(isset($xetra[$field][$id]))$out['europe']['xetra'][$field][$id]=$xetra[$field][$id];
-                foreach($xetra as $field=>$value)if(!in_array($field,['members','sessions','reviewedPairs','referenceIdentity','referenceRevoked','referenceActions','references'],true))$out['europe']['xetra'][$field]=$value;
+                foreach(['members','sessions','views','reviewedPairs','referenceIdentity','referenceRevoked','referenceActions'] as $field)if(isset($xetra[$field][$id]))$out['europe']['xetra'][$field][$id]=$xetra[$field][$id];
+                foreach($xetra as $field=>$value)if(!in_array($field,['members','sessions','views','reviewedPairs','referenceIdentity','referenceRevoked','referenceActions','references'],true))$out['europe']['xetra'][$field]=$value;
                 foreach($xetra['references']??[] as $date=>$reference){$reference['rows']=isset($reference['rows'][$id])?[$id=>$reference['rows'][$id]]:[];$out['europe']['xetra']['references'][$date]=$reference;}
             }
         }
@@ -300,6 +300,12 @@ final class InstrumentPreparation
             unset($next['_transactionFingerprints']);
             $merged['europe']['xetra']['sessions'][$id][$date]=$next;
         }
+        if(isset($one['europe']['xetra']['views'][$id])) $merged['europe']['xetra']['views'][$id] = $replaceSessionEvidence || !isset($old['europe']['xetra']['views'][$id])
+            ? $one['europe']['xetra']['views'][$id] : $old['europe']['xetra']['views'][$id];
+        if(isset($merged['europe']['xetra']['views'][$id])) {
+            $others=$merged['europe']['xetra']['views'];unset($others[$id]);
+            $merged['europe']['xetra']['views'][$id]=EuropeanProviders::boundedXetraView($merged['europe']['xetra']['views'][$id],$others);
+        }
         // A complete authoritative history entry includes its bounded retention
         // ledger. Recursive merge would revive rejected or pruned rows and attach
         // a newer response clock to omitted older values.
@@ -320,7 +326,7 @@ final class InstrumentPreparation
         if(array_diff(array_keys($old['us']['members']??[]),[$id]))foreach(['nextAttempt','corporateActionsCheckedAt'] as $field){if(isset($old['us'][$field]))$merged['us'][$field]=$old['us'][$field];else unset($merged['us'][$field]);}
         if(array_diff(array_keys($old['europe']['euronext'][$schedule]['members']??[]),[$id]))foreach(['attemptAt','nextAttempt','successAt','lastAttemptFailed','fingerprint','downloadCheck'] as $field){if(isset($old['europe']['euronext'][$schedule][$field]))$merged['europe']['euronext'][$schedule][$field]=$old['europe']['euronext'][$schedule][$field];else unset($merged['europe']['euronext'][$schedule][$field]);}
         if(array_diff(array_keys($old['europe']['xetra']['members']??[]),[$id]))foreach($merged['europe']['xetra']??[] as $field=>$_){
-            if(in_array($field,['members','sessions','reviewedPairs','referenceIdentity','referenceRevoked','referenceActions','references'],true))continue;
+            if(in_array($field,['members','sessions','views','reviewedPairs','referenceIdentity','referenceRevoked','referenceActions','references'],true))continue;
             if(array_key_exists($field,$old['europe']['xetra']))$merged['europe']['xetra'][$field]=$old['europe']['xetra'][$field];else unset($merged['europe']['xetra'][$field]);
         }
         foreach(['currentFx','weekendFx'] as $field)if(isset($old['us'][$field])&&($old['us'][$field]['end']??0)>($merged['us'][$field]['end']??0))$merged['us'][$field]=$old['us'][$field];

@@ -58,7 +58,7 @@ final class MarketRefresh
         // deliberately cannot move them for the other recurring holdings.
         foreach(['members','nextAttempt','corporateActionsCheckedAt'] as $field)if(isset($result['state']['us'][$field]))$merged['us'][$field]=$result['state']['us'][$field];
         foreach($result['state']['europe']['euronext']??[] as $schedule=>$route)foreach(['members','fingerprint','attemptAt','nextAttempt','successAt','lastAttemptFailed'] as $field)if(array_key_exists($field,$route))$merged['europe']['euronext'][$schedule][$field]=$route[$field];
-        foreach($result['state']['europe']['xetra']??[] as $field=>$value)if(!in_array($field,['sessions','reviewedPairs','referenceIdentity','referenceRevoked','referenceActions','references'],true))$merged['europe']['xetra'][$field]=$value;
+        foreach($result['state']['europe']['xetra']??[] as $field=>$value)if(!in_array($field,['sessions','views','reviewedPairs','referenceIdentity','referenceRevoked','referenceActions','references'],true))$merged['europe']['xetra'][$field]=$value;
         $snapshot['quotes']=array_replace($snapshot['quotes'],$result['snapshot']['quotes']);$snapshot['issues']=array_merge(array_values(array_filter($snapshot['issues'],static fn($issue)=>!isset($ids[$issue['instrumentId']]))),$result['snapshot']['issues']);
         $snapshot['earlierData']=array_replace(array_diff_key($snapshot['earlierData']??[],$ids),$result['snapshot']['earlierData']??[]);
         foreach(['snapshotId','generatedAt','lastAttemptAt','nextRefreshAt'] as $field)$snapshot[$field]=$result['snapshot'][$field];
@@ -68,6 +68,13 @@ final class MarketRefresh
         }
         MarketStore::validateSnapshot($snapshot,$registry);
         return ['snapshot'=>$snapshot,'state'=>$merged,'counts'=>$result['counts']];
+    }
+    /** Preserve fractional ordering when public delivery paths round differently. */
+    private static function observationOrder(?string $value):string
+    {
+        $seconds=MarketJson::instant($value);if($seconds===null)return '';
+        $fraction=preg_match('/\.(\d+)/',$value,$m)?substr(str_pad($m[1],9,'0'),0,9):'000000000';
+        return sprintf('%012d',$seconds).'.'.$fraction;
     }
     public static function build(array $registry,array $snapshot,array $state,callable $get,int $now):array
     {
@@ -86,7 +93,7 @@ final class MarketRefresh
                 if(!in_array($id,array_column($selected,'id'),true))throw new \RuntimeException('Unexpected source listing.');
                 $quote=MarketStore::applyInvalidations(array_replace(MarketStore::missing(),$quote));$old=$snapshot['quotes'][$id]??MarketStore::missing();
                 $codes=array_column(array_filter($result['issues'],static fn($issue)=>$issue['instrumentId']===$id),'code');
-                $regressed=$quote['price']!==null&&$old['price']!==null&&(($quote['date']??'')<($old['date']??'')||($quote['date']===$old['date']&&MarketJson::instant($quote['observedAt'])!==null&&MarketJson::instant($quote['observedAt'])<(MarketJson::instant($old['observedAt'])??0)));
+                $regressed=$quote['price']!==null&&$old['price']!==null&&(($quote['date']??'')<($old['date']??'')||($quote['date']===$old['date']&&MarketJson::instant($quote['observedAt'])!==null&&strcmp(self::observationOrder($quote['observedAt']),self::observationOrder($old['observedAt']))<0));
                 $invalidations=$quote['invalidations']??[];$comparisonInvalidated=is_array($invalidations)&&in_array('comparison',$invalidations,true);
                 $partialPair=$quote['price']!==null&&$old['previousClose']!==null&&$quote['previousClose']===null&&!in_array('corporate_action_unverified',$codes,true)&&!$comparisonInvalidated;
                 if($regressed||$partialPair){$quote=$old;if($comparisonInvalidated){$quote['previousClose']=null;$quote['previousFx']=null;$quote['invalidations']=array_values(array_unique(array_merge($quote['invalidations']??[],['comparison'])));}$quote['status']='stale';$quote['sourceAvailable']=false;$snapshot['issues'][]=['instrumentId'=>$id,'code'=>'source_unavailable'];}
