@@ -8,6 +8,7 @@ final class InstrumentDirectory
 {
     public const PAGE_SIZE = 20;
     public const PREPARATION_JSON_LIMIT = 4000000;
+    public const MAX_BACKUP_ROWS = 20000;
     private const INSERT_PARAMETERS = 900;
     private const INSERT_BYTES = 1048576;
     public function __construct(private readonly \PDO $db, private readonly ?string $ownerEmail, private readonly ?int $clock = null) {}
@@ -50,7 +51,7 @@ final class InstrumentDirectory
     /** Trusted operator import only; URLs and provider mappings never come from an API client. */
     public function import(string $catalogueId,array $entries,int $now):int
     {
-        if(!array_is_list($entries)||count($entries)>20000||$now<1)throw new \RuntimeException('Invalid directory import.');
+        if(!array_is_list($entries)||count($entries)>self::MAX_BACKUP_ROWS||$now<1)throw new \RuntimeException('Invalid directory import.');
         $catalogue=(new CatalogueStore($this->db,$this->ownerEmail))->row($catalogueId);
         $active=array_column(CatalogueStore::validateRow($catalogue),null,'id');$activePolicy=json_decode($catalogue['policy_json'],true,32,JSON_THROW_ON_ERROR);$seen=[];
         $ownsTransaction=!$this->db->inTransaction();if($ownsTransaction)$this->db->beginTransaction();
@@ -59,17 +60,28 @@ final class InstrumentDirectory
             // preparation evidence just to decide whether a listing exists.
             $existing=[];$scan=$this->query('SELECT instrument_id,instrument_json,policy_json FROM market_directory WHERE catalogue_id = ?',[$catalogueId]);
             while($row=$scan->fetch())$existing[$row['instrument_id']]=[$row['instrument_json'],$row['policy_json']];
+            $initialPreparation=[];
             foreach($entries as $entry){
-                if(!is_array($entry)||array_diff(array_keys($entry),['instrument','policy']))throw new \RuntimeException('Invalid directory entry.');
+                if(!is_array($entry)||array_diff(array_keys($entry),['instrument','policy','assetId']))throw new \RuntimeException('Invalid directory entry.');
                 $i=$entry['instrument']??null;MarketStore::validateRegistry([$i]);$id=$i['id'];
                 if(isset($seen[$id]))throw new \RuntimeException('Duplicate directory listing.');$seen[$id]=true;
                 CatalogueStore::policies([$id=>$entry['policy']??null],[$i],$catalogue['audience']);
                 if(isset($active[$id])&&($active[$id]!==$i||$activePolicy[$id]!==$entry['policy']))throw new \RuntimeException('Directory cannot redefine an active listing.');
                 $old=$existing[$id]??null;
                 if($old!==null&&(json_decode($old[0],true,32,JSON_THROW_ON_ERROR)!==$i||json_decode($old[1],true,32,JSON_THROW_ON_ERROR)!==$entry['policy']))throw new \RuntimeException('Directory identity changes require a separate reviewed migration.');
+                if(array_key_exists('assetId',$entry)){
+                    $assetId=MarketJson::alpacaAssetId($entry['assetId']);
+                    if($i['provider']!=='alpaca'||$assetId===null)throw new \RuntimeException('Invalid initial Alpaca identity.');
+                    // The normal first preparation fetch must confirm the same
+                    // asset ID. A reference import has never checked a quote.
+                    $identity=['assetId'=>$assetId,'symbol'=>$i['symbol'],'mic'=>$i['mic'],'checkedAt'=>0];
+                    $initialPreparation[$id]=json_encode(['state'=>['us'=>['identities'=>[$id=>$identity]]]],JSON_THROW_ON_ERROR);
+                }
             }
-            $rows=static function()use($entries,$existing,$active,$catalogueId,$now):\Generator{foreach($entries as $entry){$i=$entry['instrument'];$id=$i['id'];if(isset($existing[$id]))continue;
-                yield [$catalogueId,$id,self::key($i['name']),self::key($i['symbol']),self::key($i['isin']??''),json_encode($i,JSON_THROW_ON_ERROR),json_encode($entry['policy'],JSON_THROW_ON_ERROR),'{}',0,0,isset($active[$id])?$now:0,null,0];
+            $newCount=count(array_diff_key($seen,$existing));
+            if($newCount>0&&(int)$this->query('SELECT COUNT(*) FROM market_directory')->fetchColumn()+$newCount>self::MAX_BACKUP_ROWS)throw new \RuntimeException('Directory additions exceed the recoverable backup size.');
+            $rows=static function()use($entries,$existing,$active,$catalogueId,$now,$initialPreparation):\Generator{foreach($entries as $entry){$i=$entry['instrument'];$id=$i['id'];if(isset($existing[$id]))continue;
+                yield [$catalogueId,$id,self::key($i['name']),self::key($i['symbol']),self::key($i['isin']??''),json_encode($i,JSON_THROW_ON_ERROR),json_encode($entry['policy'],JSON_THROW_ON_ERROR),$initialPreparation[$id]??'{}',0,0,isset($active[$id])?$now:0,null,0];
             }};
             $this->insertDirectoryRows($rows());
             $tokens=static function()use($entries,$existing,$catalogueId):\Generator{foreach($entries as $entry){$i=$entry['instrument'];if(isset($existing[$i['id']]))continue;foreach(self::tokens($i) as $token)yield [$catalogueId,$token,$i['id']];}};
@@ -77,6 +89,59 @@ final class InstrumentDirectory
             if($ownsTransaction)$this->db->commit();
         }catch(\Throwable $e){if($ownsTransaction&&$this->db->inTransaction())$this->db->rollBack();throw $e;}
         return count($entries);
+    }
+
+    /** Called under the collector lock with the freshly joined US reference. */
+    public function appendUsListings(int $ownerId, array $instruments, array $assetIds, int $now): int
+    {
+        $policy = ['priceAccess'=>'owner','fxAccess'=>'owner','priceHistory'=>true,'fxHistory'=>true];
+        $this->db->beginTransaction();
+        try {
+            $catalogue = (new CatalogueStore($this->db, $this->ownerEmail))->account($ownerId, true);
+            if ($catalogue === null || $catalogue['audience'] !== 'owner') {
+                throw new \RuntimeException('US directory refresh needs the configured owner catalogue.');
+            }
+            $knownIds = $knownSymbols = $knownAssets = [];
+            $remember = static function(array $listing) use (&$knownIds, &$knownSymbols): void {
+                $knownIds[$listing['id']] = true;
+                if ($listing['currency'] === 'USD') $knownSymbols[self::key($listing['symbol'])] = true;
+            };
+            foreach (CatalogueStore::validateRow($catalogue) as $listing) $remember($listing);
+            $state = json_decode($catalogue['state_json'], true, 64, JSON_THROW_ON_ERROR);
+            foreach ($state['us']['identities'] ?? [] as $identity) {
+                if (($assetId = MarketJson::alpacaAssetId($identity['assetId'] ?? null)) !== null) $knownAssets[$assetId] = true;
+            }
+            $rows = $this->query("SELECT instrument_json, CASE WHEN preparation_json LIKE ? THEN preparation_json END AS identity_json
+                FROM market_directory WHERE catalogue_id = ?", ['%"identities"%', $catalogue['id']]);
+            while ($row = $rows->fetch()) {
+                $listing = json_decode($row['instrument_json'], true, 32, JSON_THROW_ON_ERROR);
+                $remember($listing);
+                if ($listing['provider'] !== 'alpaca' || $row['identity_json'] === null) continue;
+                $prepared = json_decode($row['identity_json'], true, 64, JSON_THROW_ON_ERROR);
+                $assetId = MarketJson::alpacaAssetId($prepared['state']['us']['identities'][$listing['id']]['assetId'] ?? null);
+                if ($assetId !== null) $knownAssets[$assetId] = true;
+            }
+
+            $symbolCounts = array_count_values(array_column($instruments, 'symbol'));
+            $assetCounts = array_count_values($assetIds);
+            $entries = [];
+            foreach ($instruments as $listing) {
+                $symbol = $listing['symbol'];
+                $id = $listing['id'];
+                $assetId = $assetIds[$id];
+                // Known tickers include manual aliases and possible venue or
+                // issuer changes. Those require separate identity review.
+                if (isset($knownIds[$id]) || isset($knownSymbols[self::key($symbol)]) || isset($knownAssets[$assetId]) ||
+                    $symbolCounts[$symbol] !== 1 || $assetCounts[$assetId] !== 1) continue;
+                $entries[] = ['instrument'=>$listing,'policy'=>$policy,'assetId'=>$assetId];
+            }
+            $count = $entries ? $this->import($catalogue['id'], $entries, $now) : 0;
+            $this->db->commit();
+            return $count;
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
     }
     public function seedCatalogue(string $catalogueId,int $now):int
     {

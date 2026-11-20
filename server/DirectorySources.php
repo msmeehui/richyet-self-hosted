@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace RichYet;
 
+require_once __DIR__.'/MarketJson.php';
+
 /** Pure reference-data imports. These define candidates, never price readiness.
  * No network, credentials, portfolios or provider quota lives in this class. */
 final class DirectorySources
@@ -11,12 +13,12 @@ final class DirectorySources
     /** Exact Alpaca symbol/exchange join with Nasdaq's explicit ETF classification.
      * A non-ETF is admitted as Stock only when its security name says shares/stock.
      * Alias keys are MIC|currency|symbol and values are reviewed registry entries. */
-    public static function us(array $assets,string $nasdaq,string $other,int $now,array $aliases=[]):array
+    public static function us(array $assets,string $nasdaq,string $other,int $now,array $aliases=[],bool $pinAssets=false):array
     {
         if(!array_is_list($assets)||count($assets)>20000)throw new \RuntimeException('Invalid asset directory.');
         $a=self::nasdaq($nasdaq,false,$now);$b=self::nasdaq($other,true,$now);$reference=[];$excluded=[];
         foreach(array_merge($a['rows'],$b['rows']) as $row){$key=$row['exchange'].'|'.$row['symbol'];if(isset($reference[$key]))throw new \RuntimeException('Duplicate exchange reference.');$reference[$key]=$row;}
-        $instruments=[];$seen=[];
+        $instruments=[];$seen=[];$assetIds=[];
         foreach($assets as $asset){
             if(!is_array($asset))throw new \RuntimeException('Invalid asset row.');
             $symbol=$asset['symbol']??null;$exchange=$asset['exchange']??null;
@@ -29,10 +31,30 @@ final class DirectorySources
             [$mic,$label]=self::EXCHANGES[$exchange];$identity=$mic.'|USD|'.$symbol;
             $i=['id'=>self::id($identity),'name'=>$asset['name'],'symbol'=>$symbol,'exchange'=>$label,'mic'=>$mic,'currency'=>'USD','type'=>$row['type'],
                 'coverage'=>['price'=>true,'comparison'=>true],'provider'=>'alpaca','providerConfig'=>['symbol'=>$symbol,'identityConfirmed'=>true],'timeZone'=>'America/New_York'];
-            $instruments[]=self::alias($i,$identity,$aliases);
+            $i=self::alias($i,$identity,$aliases);
+            if($pinAssets){
+                $assetId=MarketJson::alpacaAssetId($asset['id']??null);
+                if($assetId===null){self::omit($excluded,'missing_asset_id');continue;}
+                $assetIds[$i['id']]=$assetId;
+            }
+            $instruments[]=$i;
         }
         return ['instruments'=>$instruments,'evidence'=>['source'=>'Alpaca active assets + Nasdaq symbol directories','assetRows'=>count($assets),'nasdaqRows'=>count($a['rows']),'otherRows'=>count($b['rows']),
-            'nasdaqDate'=>$a['date'],'otherDate'=>$b['date'],'nasdaqSha256'=>hash('sha256',$nasdaq),'otherSha256'=>hash('sha256',$other),'count'=>count($instruments)],'excluded'=>$excluded];
+            'nasdaqDate'=>$a['date'],'otherDate'=>$b['date'],'nasdaqSha256'=>hash('sha256',$nasdaq),'otherSha256'=>hash('sha256',$other),'count'=>count($instruments)],'excluded'=>$excluded]
+            + ($pinAssets ? ['assetIds'=>$assetIds] : []);
+    }
+
+    /** Fetch reference metadata through the caller's bounded provider transport. */
+    public static function downloadUs(callable $get, int $now): array
+    {
+        $base = 'https://www.nasdaqtrader.com/dynamic/symdir/';
+        $nasdaq = $get($base . 'nasdaqlisted.txt', 5000000);
+        $other = $get($base . 'otherlisted.txt', 5000000);
+        $assets = json_decode($get('https://paper-api.alpaca.markets/v2/assets?status=active&asset_class=us_equity', 16777216), true, 16, JSON_THROW_ON_ERROR);
+        if (!is_array($assets)) throw new \RuntimeException('Invalid Alpaca asset directory.');
+        $result = self::us($assets, $nasdaq, $other, $now, pinAssets: true);
+        if (!$result['instruments']) throw new \RuntimeException('The US directories produced no verified listings.');
+        return $result;
     }
 
     private static function nasdaq(string $raw,bool $other,int $now):array

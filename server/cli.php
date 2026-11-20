@@ -17,8 +17,11 @@ try {
         }
         $args[$argv[$i]] = $argv[$i + 1];
     }
-    if (!in_array($command, ['init', 'invite', 'recover', 'backup', 'restore', 'market-configure', 'live-import', 'market-refresh', 'market-coverage', 'catalogue-install', 'catalogue-prepare', 'catalogue-attach','directory-import','instrument-prepare'], true)) {
+    if (!in_array($command, ['init', 'invite', 'recover', 'backup', 'restore', 'market-configure', 'live-import', 'market-refresh', 'market-coverage', 'catalogue-install', 'catalogue-prepare', 'catalogue-attach','directory-import','directory-refresh-us','instrument-prepare'], true)) {
         throw new RuntimeException('Usage: php server/cli.php init|invite|recover|backup|restore --config /private/config.json [--email address --output /private/link.txt | --output /private/backup.json | --input /private/backup.json]');
+    }
+    if ($command === 'directory-refresh-us' && array_diff(array_keys($args), ['--config'])) {
+        throw new RuntimeException('US directory refresh accepts only --config.');
     }
     $config = \RichYet\loadConfig($args['--config'] ?? (getenv('RICHYET_CONFIG') ?: ''));
     $db = \RichYet\connect($config);
@@ -122,7 +125,21 @@ try {
                 $owner=$db->prepare('SELECT id FROM users WHERE email = ?');$owner->execute([$email]);$ownerId=$owner->fetchColumn();
                 if($ownerId===false)throw new RuntimeException('Configured owner does not exist.');$ownerId=(int)$ownerId;
                 $store=new \RichYet\MarketStore($db,$email);
-                if($command==='live-import'){
+                if ($command === 'directory-refresh-us') {
+                    require_once __DIR__.'/DirectorySources.php';
+                    $catalogue = $store->catalogues()->account($ownerId);
+                    if ($catalogue === null || $catalogue['audience'] !== 'owner') {
+                        throw new RuntimeException('US directory refresh needs the configured owner catalogue.');
+                    }
+                    $now = time();
+                    $keys = \RichYet\ProviderHttp::credentials($config['market_credentials_path'] ?? '');
+                    $http = new \RichYet\ProviderHttp($store, $keys, $now, 40, 3, true);
+                    $reference = \RichYet\DirectorySources::downloadUs([$http, 'get'], $now);
+                    $directory = new \RichYet\InstrumentDirectory($db, $email);
+                    $added = $directory->appendUsListings($ownerId, $reference['instruments'], $reference['assetIds'], $now);
+                    fwrite(STDOUT, json_encode(['result'=>'us_directory_refreshed','observedAt'=>gmdate(DATE_ATOM,$now),
+                        'added'=>$added,'source'=>$reference['evidence'],'transport'=>$http->evidence()], JSON_THROW_ON_ERROR)."\n");
+                } elseif($command==='live-import'){
                     $inputPath=\RichYet\Maintenance::privatePath($args['--input']??'',true);
                     $input=json_decode(file_get_contents($inputPath),true,64,JSON_THROW_ON_ERROR);if(!is_array($input))throw new RuntimeException('Invalid import JSON.');
                     \RichYet\MarketStore::validateRegistry($input['instruments']??null);

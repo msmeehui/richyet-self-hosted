@@ -5,6 +5,12 @@ namespace RichYet;
 /** Provider numbers remain decimal text; PHP floats never touch money. */
 final class MarketJson
 {
+    public static function alpacaAssetId(mixed $value): ?string
+    {
+        return is_string($value) && preg_match('/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iD', $value)
+            ? strtolower($value) : null;
+    }
+
     public static function decode(string $json): mixed
     {
         $quoted = preg_replace_callback('/"(?:\\\\.|[^"\\\\])*"|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/s',

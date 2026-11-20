@@ -112,9 +112,11 @@ final class ProviderHttp
             // cannot be charged to the previous quota window.
             $requestTime=time();
             $this->store->reserveRequest($provider,$requestTime,$this->preparation);$this->calls++;
-            // The Paris file service returns 406 when asked for JSON; its
-            // documented download is a ZIP, unlike the JSON quote endpoints.
-            $accept=str_starts_with($url,'https://marketdata.euronext.com/')?'application/zip':'application/json';
+            $accept=match (true) {
+                str_starts_with($url,'https://marketdata.euronext.com/')=>'application/zip',
+                str_starts_with($url,'https://www.nasdaqtrader.com/')=>'text/plain',
+                default=>'application/json',
+            };
             $headers=['Accept: '.$accept,'User-Agent: RichYet-private/1'];
             if($provider==='alpaca'){$headers[]='APCA-API-KEY-ID: '.$this->keys['ALPACA_API_KEY_ID'];$headers[]='APCA-API-SECRET-KEY: '.$this->keys['ALPACA_API_SECRET_KEY'];}
             if($provider==='tickerlayer')$headers[]='x-api-key: '.$this->keys['TICKERLAYER_API_KEY'];

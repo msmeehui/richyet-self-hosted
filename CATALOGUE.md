@@ -58,6 +58,18 @@ php server/cli.php directory-import --config /absolute/private/app-config.json -
 
 The command writes a private backup before import; it preserves existing listing definitions and holdings. A searchable new listing is prepared only when selected, within the same budgets. Do not reuse an old ID for a different listing or assume that identical tickers identify identical investments.
 
-For larger directories, `server/DirectorySources.php` contains parsers for your own freshly obtained Alpaca/Nasdaq, Xetra and EODHD reference inputs. The parsers reject stale or conflicting records; Euronext and Xetra require separately reviewed mappings. They are building blocks for an operator, not an included automatic download wizard. Do not copy another installation’s database, saved observations or provider keys.
+The reference parsers in `server/DirectorySources.php` reject stale or conflicting records. Euronext and Xetra still require separately reviewed mappings. Use your own installation’s configuration, listings and provider credentials.
+
+## Refreshing US listings
+
+With your owner-only catalogue installed and a verified recovery backup, run:
+
+```sh
+php server/cli.php directory-refresh-us --config /absolute/private/app-config.json
+```
+
+The command combines Nasdaq’s symbol directories and Alpaca’s active equity list. It appends new exact listings and their search terms in one transaction. Known US tickers, including exchange moves and ticker reuse, require a separately reviewed identity change. New listings use one Alpaca metadata request and two public file requests for the whole run. Normal price preparation still applies after selection.
+
+To keep the directory current, schedule the command once daily in the morning after the US trading day. Use the same account, PHP runtime and private configuration as the price collector. Choose a minute away from the collector’s schedule and record the output in a private log. Check for a `us_directory_refreshed` result with an `added` count. A failed import leaves the prior directory available for searches. See [scheduled updates](INSTALL.md#5-schedule-automatic-updates).
 
 Only EUR/USD instruments with an existing supported adapter are candidates. The GBP portfolio-reporting option does not add London/GBP instrument coverage. Other funds, bonds, options, futures and crypto cannot be enabled merely by adding their names to JSON.

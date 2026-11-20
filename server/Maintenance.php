@@ -50,7 +50,7 @@ final class Maintenance
         $markets=$version>=2?($backup['markets']??null):[];
         $catalogues=$version>=3?($backup['catalogues']??null):[];$members=$version>=3?($backup['memberships']??null):[];$usage=$version>=3?($backup['usage']??null):[];
         $directory=$version>=4?($backup['directory']??null):[];
-        if(!is_array($directory)||!array_is_list($directory)||count($directory)>20000)throw new \RuntimeException('Invalid directory backup.');
+        if(!is_array($directory)||!array_is_list($directory)||count($directory)>InstrumentDirectory::MAX_BACKUP_ROWS)throw new \RuntimeException('Invalid directory backup.');
         foreach([$markets,$catalogues,$members,$usage] as $rows)if(!is_array($rows)||!array_is_list($rows)||count($rows)>10000)throw new \RuntimeException('Invalid market backup.');
         if(count($markets)>100||count($catalogues)>100||count($members)>100)throw new \RuntimeException('Market backup exceeds account limit.');
         foreach($markets as $m){

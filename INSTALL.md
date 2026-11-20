@@ -81,6 +81,8 @@ Create one job, under the same PHP user, every ten minutes. Replace the binary a
 
 Do not replace unrelated scheduled jobs. Use a private log file with rotation or periodically clear/archive it. The collector applies its own hourly gates and free protective budgets; the ten-minute job does not download every investment every ten minutes. Refreshing the browser reads saved prices only. Check **Last update** and the owner-only **Data status** page after two eligible collections while the market is open, allowing for roughly hourly checks and provider delays. Compare the actual price dates/times and both comparisons; two ten-minute job runs may legitimately reuse the same saved price. A successful job alone does not prove that a source timestamp advanced.
 
+To add new US listings automatically, you can also [schedule the directory refresh](CATALOGUE.md#refreshing-us-listings) once daily.
+
 ## Back up and recover
 
 Create a private snapshot before updates, and roughly monthly for a small personal installation:
