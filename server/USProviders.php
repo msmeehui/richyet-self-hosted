@@ -258,7 +258,11 @@ final class USProviders
     {
         $instruments=array_values(array_filter($registry,static fn($i)=>$i['provider']==='alpaca'));
         $members=[];foreach($instruments as $i)$members[$i['id']]=hash('sha256',json_encode([$i['mic'],$i['currency'],$i['providerConfig']],JSON_THROW_ON_ERROR));ksort($members);
-        if(!$instruments||(($state['nextAttempt']??0)>$now&&($state['members']??null)===$members))return ['quotes'=>[],'state'=>$state,'issues'=>[]];
+        // The held-only collector rebuilds this map in catalogue order.
+        // Compare the same listing IDs and source fingerprints independently of order.
+        $previousMembers=$state['members']??null;
+        if(is_array($previousMembers))ksort($previousMembers);
+        if(!$instruments||(($state['nextAttempt']??0)>$now&&$previousMembers===$members))return ['quotes'=>[],'state'=>$state,'issues'=>[]];
         // One transient retry across the entire batch, charged by the same
         // durable transport limits. Auth/quota errors, Retry-After, malformed
         // bodies and invalid corporate-action evidence never receive this retry.

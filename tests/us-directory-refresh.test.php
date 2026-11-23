@@ -2,11 +2,13 @@
 declare(strict_types=1);
 require dirname(__DIR__).'/self-host/bootstrap-lib.php';
 require_once dirname(__DIR__).'/server/DirectorySources.php';
+require_once dirname(__DIR__).'/server/InstrumentPreparation.php';
 require_once dirname(__DIR__).'/server/USProviders.php';
 
 use RichYet\Backend;
 use RichYet\DirectorySources;
 use RichYet\InstrumentDirectory;
+use RichYet\InstrumentPreparation;
 use RichYet\Maintenance;
 use RichYet\USProviders;
 use RichYetSelfHost\Bootstrap;
@@ -91,6 +93,35 @@ $response = static function(string $url) use ($recycled,&$calls): string {
 };
 $market = USProviders::refresh([$parsed['instrument']],$state,$response,$now);
 directoryCheck($calls === 1 && $market['issues'] === [['instrumentId'=>$id,'code'=>'listing_unverified']], 'First preparation refuses a recycled provider identity before fetching prices');
+
+// The ordinary collector reassembles the saved US batch in catalogue order.
+// A newly appended holding can therefore reorder its saved membership map.
+$existing = array_replace($parsed['instrument'], ['id'=>'fictional-z', 'providerConfig'=>['symbol'=>'FZ', 'identityConfirmed'=>true]]);
+$appended = array_replace($parsed['instrument'], ['id'=>'fictional-a', 'providerConfig'=>['symbol'=>'FA', 'identityConfirmed'=>true]]);
+$batch = [$existing, $appended];
+$requests = 0;
+$failedSource = static function(string $url) use (&$requests): string {
+    $requests++;
+    throw new RuntimeException('Fictional source outage');
+};
+$first = USProviders::refresh($batch, [], $failedSource, $now);
+$heldState = [];
+foreach ($batch as $listing) {
+    $heldState = InstrumentPreparation::mergeState($heldState, ['us'=>$first['state']], $listing);
+}
+$requestsBeforeRetry = $requests;
+$early = USProviders::refresh($batch, $heldState['us'], $failedSource, $now+600);
+directoryCheck($requests === $requestsBeforeRetry && $early['issues'] === [] && $early['state'] === $heldState['us'],
+    'Same retained listings in catalogue order must not bypass the outage backoff');
+USProviders::refresh($batch, $heldState['us'], $failedSource, $now+3600);
+directoryCheck($requests > $requestsBeforeRetry, 'The same batch can retry when the backoff ends');
+$requestsBeforeChange = $requests;
+USProviders::refresh([$existing], $heldState['us'], $failedSource, $now+600);
+directoryCheck($requests > $requestsBeforeChange, 'A real membership change still permits an immediate attempt');
+$requestsBeforeChange = $requests;
+$changed = array_replace($appended, ['providerConfig'=>['symbol'=>'FB', 'identityConfirmed'=>true]]);
+USProviders::refresh([$existing, $changed], $heldState['us'], $failedSource, $now+600);
+directoryCheck($requests > $requestsBeforeChange, 'A changed source identity still permits an immediate attempt');
 
 $restored = new PDO('sqlite::memory:', null, null, [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
 Bootstrap::initializeSchema($restored, $schema);
