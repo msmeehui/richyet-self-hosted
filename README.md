@@ -68,7 +68,7 @@ npm test
 npm run calendars:review
 ```
 
-The regression tests cover calculations, retained prices, reporting, calendars and setup using fictional data and disposable SQLite databases. They need PHP with PDO SQLite. Production uses MySQL/MariaDB. See INSTALL.md for backups, recovery and checking your installed web runtime. Calendar coverage is explicit and needs occasional review; European 2027 coverage is not complete yet.
+The regression tests cover calculations, retained prices, reporting, calendars and setup using fictional data and disposable SQLite databases. They need PHP with PDO SQLite. Production uses MySQL/MariaDB. See INSTALL.md for backups, recovery and checking your installed web runtime. See [market calendars](MARKET_CALENDARS.md) for verified 2027 coverage, pending holiday hours and the small maintenance process.
 
 Created by Marc Smeehuijzen. [MIT licence](LICENSE). This package contains software and small reference examples, not anyone’s portfolio, credentials, historical prices or original private development history.
 

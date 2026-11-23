@@ -13,6 +13,7 @@ for(const [name,calendar] of Object.entries(source.calendars)){
     if(!/^20\d{2}$/.test(year))fail(`${name} year`);
     for(const field of ['closed','uncertainHours'])if(!Array.isArray(row[field])||new Set(row[field]).size!==row[field].length||row[field].some(day=>!validDate(`${year}-${day}`)))fail(`${name} ${year} ${field}`);
     for(const [day,minute] of Object.entries(row.earlyCloses))if(!validDate(`${year}-${day}`)||!Number.isInteger(minute)||minute<=calendar.openMinute||minute>=calendar.closeMinute||row.closed.includes(day)||row.uncertainHours.includes(day))fail(`${name} early close`);
+    for(const [day,minute] of Object.entries(row.earlyApproxCloses??{}))if(!Object.hasOwn(row.earlyCloses,day)||!Number.isInteger(minute)||minute<row.earlyCloses[day]||minute>=calendar.approxCloseMinute)fail(`${name} approximate early close`);
     if(row.closed.some(day=>row.uncertainHours.includes(day)))fail(`${name} conflicting day`);
   }
 }

@@ -123,7 +123,7 @@ test('current-clock closure beats stored quote status and keeps its dated compar
 });
 
 test('unreviewed calendars remain neutral and never overwrite their comparison',()=>{
-  for (const [instrument,now] of [[ams,'2027-10-13T10:00:00Z'],[unknown,'2026-10-13T10:00:00Z']]) {
+  for (const [instrument,now] of [[ams,'2028-10-13T10:00:00Z'],[unknown,'2026-10-13T10:00:00Z']]) {
     const row = entry(instrument), result = selectHoldingSections([row],at(now));
     assert.equal(result.sections[0].id,'closed');assert.equal(result.entries[0].sessionState,'unknown');
     assert.equal(result.entries[0].comparisonQuote,row.quote);assert.equal(result.openMarkets.unknownCount,1);

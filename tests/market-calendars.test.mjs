@@ -13,7 +13,7 @@ test('verified 2027 venue closures do not leak to unverified venues or years',()
   assert.equal(calendarDay('XETA','2027-12-27').isSession,true,'no invented observed Christmas holiday');
   assert.equal(calendarDay('XNYS','2027-06-18').isSession,false);
   assert.equal(calendarDay('XNYS','2027-11-26').closeMinute,780);
-  for(const mic of ['XNAS','BATS','XAMS','XPAR','XBRU'])assert.equal(calendarDay(mic,'2027-01-04'),null);
+  assert.equal(calendarDay('XNAS','2027-01-04'),null);
   for(const bad of ['2027-02-29','2028-01-04','not-a-date'])assert.equal(calendarDay('XETA',bad),null);
 });
 test('2027 exchange-local boundaries survive different US and European DST weeks',()=>{
@@ -55,4 +55,31 @@ test('BND is still an explicit weekday reporting window, with no 2026 expiry',()
   assert.equal(getFundWindowState(fund,Date.parse('2027-01-04T08:00:00Z')),'open');
   assert.equal(getFundWindowState(fund,Date.parse('2027-07-05T15:30:00Z')),'closed');
   assert.equal(getFundWindowState(fund,Date.parse('2027-07-03T10:00:00Z')),'closed');
+});
+
+test('Euronext 2027 dates keep distinct holidays, half-days and DST boundaries',()=>{
+  for(const mic of ['XAMS','XPAR','XBRU']){
+    for(const day of ['2027-01-01','2027-03-26','2027-03-29'])assert.equal(calendarDay(mic,day).isSession,false);
+    for(const day of ['2027-05-03','2027-12-27','2027-12-28'])assert.equal(calendarDay(mic,day).isSession,true,'no foreign substitute holiday');
+    for(const day of ['2026-12-24','2026-12-31','2027-12-24','2027-12-31'])assert.equal(calendarDay(mic,day).hoursKnown,false);
+    const i={type:'Stock',currency:'EUR',mic,closeSchedule:mic==='XAMS'?'ams_j0_continuous_2026':mic==='XPAR'?'par_stock_continuous_2026':'bru_a0_continuous_2026',timeZone:mic==='XAMS'?'Europe/Amsterdam':mic==='XPAR'?'Europe/Paris':'Europe/Brussels'};
+    for(const [before,open] of [['2027-03-25T07:59:59Z','2027-03-25T08:00:00Z'],['2027-03-30T06:59:59Z','2027-03-30T07:00:00Z'],['2027-11-01T07:59:59Z','2027-11-01T08:00:00Z']]){
+      assert.equal(state(i,before),'closed'); assert.equal(state(i,open),'open');
+    }
+  }
+});
+test('Cboe verified dates do not borrow NYSE early-close hours',()=>{
+  const cboe={...us,mic:'BATS'};
+  for(const day of ['2027-06-18','2027-07-05','2027-12-24'])assert.equal(state(cboe,day+'T16:00:00Z'),'closed');
+  assert.equal(state(cboe,'2027-11-26T18:00:00Z'),'unknown');
+  assert.equal(state({...us,mic:'XNYS'},'2027-11-26T18:00:00Z'),'closed');
+  assert.equal(state(cboe,'2027-03-15T13:30:00Z'),'open');
+  assert.equal(state(us,'2027-03-15T13:30:00Z'),'unknown');
+});
+test('Xetra 2026 final session separates closing call from approximate price time',()=>{
+  assert.equal(state(xetra,'2026-12-30T12:59:59Z'),'open');
+  assert.equal(state(xetra,'2026-12-30T13:00:00Z'),'closed');
+  assert.equal(approximateClosingInstant(xetra,'2026-12-30',Date.parse('2026-12-30T13:04:59Z')),null);
+  assert.equal(approximateClosingInstant(xetra,'2026-12-30',Date.parse('2026-12-30T14:00:00Z')),'2026-12-30T13:05:00.000Z');
+  assert.equal(approximateClosingInstant(xetra,'2026-12-29',Date.parse('2026-12-30T14:00:00Z')),'2026-12-29T16:35:00.000Z');
 });

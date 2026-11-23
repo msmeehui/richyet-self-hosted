@@ -49,7 +49,7 @@ test('exchange daylight saving changes are applied before formatting in the devi
 
 test('calendar limits, unknown special sessions and mismatched listings never acquire a made-up closing time',()=>{
   for (const day of ['2025-12-29','2027-01-04','2026-02-30','2026-01-01','2026-04-03','2026-04-06','2026-05-01',
-    '2026-10-10','2026-12-24','2026-12-25','2026-12-26','2026-12-30','2026-12-31'])
+    '2026-10-10','2026-12-24','2026-12-25','2026-12-26','2026-12-31'])
     assert.equal(approximateClosingInstant(xetra,day,end),null,day);
   assert.equal(approximateClosingInstant(ams,'2026-07-31',end),null,'prior to reviewed manual effective date');
   assert.equal(approximateClosingInstant(ams,'2026-12-30',end),'2026-12-30T16:35:00.000Z','Euronext is a full day');

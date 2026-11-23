@@ -80,13 +80,13 @@ test('weekends, venue holidays and local-date rollover are distinct from old quo
   assert.equal(at(xetra,'2026-05-14T12:00:00Z'),false,'Ascension is a trading day');
   assert.equal(at(xetra,'2026-05-25T12:00:00Z'),false,'Whit Monday is a trading day');
   assert.equal(at(us,'2027-01-01T02:00:00Z'),true,'New York is still inside the reviewed2026 year');
-  assert.equal(at(ams,'2026-12-31T23:00:00Z'),false,'Amsterdam has entered unreviewed2027');
+  assert.equal(at(ams,'2026-12-31T23:00:00Z'),true,'Amsterdam has entered the verified 2027 New Year closure');
 });
 
 test('unreviewed special sessions and dates do not produce a Closed claim',()=>{
   for (const day of ['2026-12-24','2026-12-31']) for (const hour of ['02','12','21'])
     assert.equal(at(ams,`${day}T${hour}:00:00Z`),false);
-  for (const hour of ['02','12','21']) assert.equal(at(xetra,`2026-12-30T${hour}:00:00Z`),false);
+  for (const hour of ['02','12','21']) assert.equal(at(xetra,`2027-12-30T${hour}:00:00Z`),false);
   for (const instrument of [us,ams,xetra]) for (const day of ['2025-10-11','2028-10-10'])
     assert.equal(at(instrument,`${day}T14:00:00Z`),false);
   assert.equal(at(ams,'2026-08-02T12:00:00Z'),false,'before the reviewed Euronext schedule begins');

@@ -20,7 +20,7 @@ test('explicit states distinguish scheduled open, closed, unknown and daily fund
   assert.deepEqual(getExchangeSession({...ams,closeSchedule:'unknown'},at('2026-10-13T10:00:00Z')),{state:'unknown',date:null});
   assert.deepEqual(getExchangeSession(fund,at('2026-10-13T10:00:00Z')),{state:'fund',date:null});
   assert.equal(isExchangeClosed(fund,at('2026-10-13T10:00:00Z')),false);
-  for(const now of [NaN,Infinity,at('2027-10-13T10:00:00Z')]) assert.equal(getExchangeSession(ams,now).state,'unknown');
+  for(const now of [NaN,Infinity,at('2028-10-13T10:00:00Z')]) assert.equal(getExchangeSession(ams,now).state,'unknown');
 });
 
 test('Xetra closing publication remains Closed and does not make the open subtotal partial',()=>{

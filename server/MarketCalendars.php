@@ -15,7 +15,7 @@ final class MarketCalendars
         $isSession=(int)(new \DateTimeImmutable($date,new \DateTimeZone('UTC')))->format('N')<=5&&!in_array($md,$row['closed'],true);
         return ['isSession'=>$isSession,'hoursKnown'=>!$isSession||!in_array($md,$row['uncertainHours'],true),
             'openMinute'=>$calendar['openMinute'],'closeMinute'=>$row['earlyCloses'][$md]??$calendar['closeMinute'],
-            'approxCloseMinute'=>$row['earlyCloses'][$md]??$calendar['approxCloseMinute']];
+            'approxCloseMinute'=>$row['earlyApproxCloses'][$md]??$row['earlyCloses'][$md]??$calendar['approxCloseMinute']];
     }
     public static function isSession(string $mic,string $date):?bool { return self::day($mic,$date)['isSession']??null; }
     /** First date beyond the consecutive verified years containing $date. */

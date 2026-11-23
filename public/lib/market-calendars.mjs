@@ -9,7 +9,7 @@ export function calendarDay(mic,day){
   const calendar=MARKET_CALENDARS.calendars[venue.calendar],year=calendar.years[day.slice(0,4)],md=day.slice(5);
   const isSession=![0,6].includes(new Date(`${day}T00:00:00Z`).getUTCDay())&&!year.closed.includes(md);
   return {isSession,hoursKnown:!isSession||!year.uncertainHours.includes(md),openMinute:calendar.openMinute,
-    closeMinute:year.earlyCloses[md]??calendar.closeMinute,approxCloseMinute:year.earlyCloses[md]??calendar.approxCloseMinute};
+    closeMinute:year.earlyCloses[md]??calendar.closeMinute,approxCloseMinute:year.earlyApproxCloses?.[md]??year.earlyCloses[md]??calendar.approxCloseMinute};
 }
 const instant=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value)
   &&Number.isFinite(Date.parse(value))&&new Date(value).toISOString().replace('.000Z','Z')===value;

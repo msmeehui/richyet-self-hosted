@@ -12,11 +12,11 @@ foreach(['2027-01-01','2027-03-26','2027-03-29','2027-12-24','2027-12-31'] as $d
 $calendarCheck(\RichYet\MarketCalendars::isSession('XETA','2027-12-27')===true,'No invented Monday holiday');
 $calendarCheck(\RichYet\MarketCalendars::day('XNYS','2027-11-26')['closeMinute']===780,'NYSE 13:00 early close');
 $calendarCheck(\RichYet\MarketCalendars::isSession('XNYS','2027-06-18')===false,'NYSE observed Juneteenth');
-foreach(['XAMS','XPAR','XBRU','XNAS','BATS'] as $mic)$calendarCheck(\RichYet\MarketCalendars::day($mic,'2027-01-04')===null,'Unreviewed static venue '.$mic);
+foreach(['XNAS'] as $mic)$calendarCheck(\RichYet\MarketCalendars::day($mic,'2027-01-04')===null,'Unreviewed static venue '.$mic);
 $calendarCheck(\RichYet\MarketCalendars::day('XETA','2027-12-30')['hoursKnown']===false,'Unreviewed final-session hours');
 $calendarCheck(\RichYet\MarketCalendars::day('XETA','2027-02-29')===null,'Invalid civil date');
 $calendarCheck(\RichYet\MarketCalendars::coverageEnd('XETA','2026-12-30')==='2028-01-01','Consecutive Xetra year coverage');
-$calendarCheck(\RichYet\MarketCalendars::coverageEnd('XAMS','2026-12-30')==='2027-01-01','Euronext publication boundary');
+$calendarCheck(\RichYet\MarketCalendars::coverageEnd('XAMS','2026-12-30')==='2028-01-01','Euronext publication boundary');
 $calendarCheck(\RichYet\XetraReference::previousSession('2027-01-04')==='2026-12-30','Prior actual Xetra session at year boundary');
 $calendarCheck(\RichYet\XetraReference::previousSession('2027-03-30')==='2027-03-25','Easter previous session');
 $calendarCheck(\RichYet\XetraReference::previousSession('2028-01-03')===null,'Unreviewed future year blocked');
@@ -56,4 +56,21 @@ $calendarCheck(count($calls)===$count&&$waiting['quotes']===[],'No extra request
 $calendarFailure=true;$later=\RichYet\USProviders::refresh($registry,$result['state'],$get,$now+3600);
 $calendarCheck(($later['state']['sessionCalendar']??null)===$stored,'Failed calendar check retains original receipt without invented confirmation');
 $calendarCheck($later['state']['identities']['fictional-us']['assetId']==='11111111-2222-3333-4444-555555555555','Exact listing identity preserved');
+foreach(['XAMS','XPAR','XBRU'] as $mic){
+    foreach(['2027-01-01','2027-03-26','2027-03-29'] as $date)$calendarCheck(\RichYet\MarketCalendars::isSession($mic,$date)===false,'Euronext confirmed closure');
+    foreach(['2027-05-03','2027-12-27','2027-12-28'] as $date)$calendarCheck(\RichYet\MarketCalendars::isSession($mic,$date)===true,'No foreign substitute holiday');
+    foreach(['2026-12-24','2026-12-31','2027-12-24','2027-12-31'] as $date)$calendarCheck(\RichYet\MarketCalendars::day($mic,$date)['hoursKnown']===false,'Half-day hours remain uncertain');
+    $calendarCheck(\RichYet\EuropeanHistory::previousSession($mic,'2027-01-04')==='2026-12-31','Euronext year-boundary preceding session');
+    $calendarCheck(\RichYet\EuropeanHistory::previousSession($mic,'2027-03-30')==='2027-03-25','Euronext Easter preceding session');
+}
+$calendarCheck(\RichYet\MarketCalendars::day('BATS','2027-11-26')['hoursKnown']===false,'Cboe early-close hours not borrowed');
+$calendarCheck(\RichYet\MarketCalendars::isSession('BATS','2027-06-18')===false,'Cboe own observed holiday');
+$final=\RichYet\MarketCalendars::day('XETA','2026-12-30');
+$calendarCheck($final['hoursKnown']&&$final['closeMinute']===840&&$final['approxCloseMinute']===845,'Xetra closing call distinct from approximate determination');
+require_once dirname(__DIR__).'/server/EuronextProviders.php';
+$normal=new \ReflectionMethod(\RichYet\EuronextProviders::class,'normalDate');
+foreach(['Europe/Amsterdam','Europe/Paris','Europe/Brussels'] as $zone){
+    $calendarCheck($normal->invoke(null,'2027-01-04',$zone)===true,'Reviewed 2027 regular source session');
+    $calendarCheck($normal->invoke(null,'2027-12-24',$zone)===false,'Unconfirmed half-day direct prices still refused');
+}
 echo $calendarChecks," calendar checks passed.\n";
